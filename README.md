@@ -1,2 +1,2 @@
 # Examine Log
-Adds 3 examine types to collection log under other
+Examine Items, NPCs, and Objects to have "examine log" popups. Also keep track of those under Other in your collection log.
