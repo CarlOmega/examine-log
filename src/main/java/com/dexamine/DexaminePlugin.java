@@ -1,19 +1,18 @@
 package com.dexamine;
 
-import com.google.common.base.Function;
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.google.inject.Provides;
-
-import javax.annotation.Nullable;
-import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.widgets.*;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.JavaScriptCallback;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetModalMode;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
@@ -25,11 +24,12 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.util.Text;
-import net.runelite.http.api.item.ItemType;
 
-import java.util.*;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import java.util.Deque;
-import java.util.concurrent.Callable;
+import java.util.*;
+import java.util.function.Function;
 
 
 @Slf4j
@@ -291,6 +291,9 @@ public class DexaminePlugin extends Plugin
 	}
 
 	private void openPopUp(PendingExamine pendingExamine) {
+		if (!config.enableCollectionLogPopup()) {
+			return;
+		}
 		WidgetNode widgetNode = client.openInterface((161 << 16) | 13, 660, WidgetModalMode.MODAL_CLICKTHROUGH);
 		client.runScript(3343,
 				"Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
@@ -371,8 +374,6 @@ public class DexaminePlugin extends Plugin
 			return true;
 		}
 
-		// Menu action EXAMINE_OBJECT sends the transformed object id, not the base id, unlike
-		// all of the GAME_OBJECT_OPTION actions, so check the id against the impostor ids
 		final ObjectComposition comp = client.getObjectDefinition(tileObject.getId());
 
 		if (comp.getImpostorIds() != null)
@@ -403,7 +404,7 @@ public class DexaminePlugin extends Plugin
 		Widget categoryContainer = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_CONTAINER);
 		Widget logCategoriesRect = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_RECTANGLE);
 		Widget logCategoriesText = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_TEXT);
-		if (logCategoriesRect == null || logCategoriesText == null) {
+		if (logCategoriesRect == null || logCategoriesText == null || categoryContainer == null) {
 			return;
 		}
 		Widget[] categoryRectElements = logCategoriesRect.getDynamicChildren();
@@ -436,7 +437,8 @@ public class DexaminePlugin extends Plugin
 
 		int scrollHeight = categoryRectElements.length * 15;
 		int newHeight = 0;
-		if (categoryContainer.getScrollHeight() > 0 && categoryContainer.getScrollHeight() != scrollHeight)
+		int currentScrollHeight = categoryContainer.getScrollHeight();
+		if (currentScrollHeight > 0 && categoryContainer.getScrollHeight() != scrollHeight)
 		{
 			newHeight = (categoryContainer.getScrollY() * scrollHeight) / categoryContainer.getScrollHeight();
 		}
@@ -446,7 +448,9 @@ public class DexaminePlugin extends Plugin
 		categoryContainer.revalidateScroll();
 
 		Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_SCROLLBAR);
-
+		if (scrollbar == null) {
+			return;
+		}
 		client.runScript(
 				ScriptID.UPDATE_SCROLLBAR,
 				scrollbar.getId(),
@@ -572,7 +576,14 @@ public class DexaminePlugin extends Plugin
 		clientThread.invokeLater(() -> {
 			Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
 			Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-			combatAchievementsButton.setHidden(true);
+			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
+			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
+			if (collectionViewHeader == null || collectionView == null) {
+				return;
+			}
+			if (combatAchievementsButton != null) {
+				combatAchievementsButton.setHidden(true);
+			}
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + itemExamineLogs.values().size() + "/???");
@@ -581,15 +592,12 @@ public class DexaminePlugin extends Plugin
 				headerComponents[2].setText("Examines: <col=ffff00>" + itemExamineLogs.values().size() + "/???");
 			}
 
-			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
 			collectionView.deleteAllChildren();
-
 			int index = 0;
 			int x = 0;
 			int y = 0;
-			int yIncrement = 40;
-			int xIncrement = 42;
+			int yIncrement = 40; // sprite height
+			int xIncrement = 42; // sprite width
 			for (ItemExamineLog itemExamineLog : itemExamineLogs.values()) {
 				addItemToCollectionLog(collectionView, itemExamineLog.getId(), itemExamineLog.getExamineText(), x, y, index);
 				x = x + xIncrement;
@@ -599,13 +607,14 @@ public class DexaminePlugin extends Plugin
 					y = y + yIncrement;
 				}
 			}
-
-			collectionView.setScrollHeight(y + 43);  // y + image height (40) + 3 for padding at the bottom.
-			int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-			collectionView.revalidateScroll();
-			client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-			collectionView.setScrollY(0);
-			scrollbar.setScrollY(0);
+			if (scrollbar != null) {
+				collectionView.setScrollHeight(y + 40 + 3); // 3 padding
+				int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
+				collectionView.revalidateScroll();
+				client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
+				collectionView.setScrollY(0);
+				scrollbar.setScrollY(0);
+			}
 		});
 
 		return true;
@@ -621,7 +630,14 @@ public class DexaminePlugin extends Plugin
 		clientThread.invokeLater(() -> {
 			Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
 			Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-			combatAchievementsButton.setHidden(true);
+			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
+			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
+			if (collectionViewHeader == null || collectionView == null) {
+				return;
+			}
+			if (combatAchievementsButton != null) {
+				combatAchievementsButton.setHidden(true);
+			}
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + npcExamineLogs.values().size() + "/???");
@@ -630,8 +646,6 @@ public class DexaminePlugin extends Plugin
 				headerComponents[2].setText("Examines: <col=ffff00>" + npcExamineLogs.values().size() + "/???");
 			}
 
-			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
 			collectionView.deleteAllChildren();
 
 			int index = 0;
@@ -651,12 +665,14 @@ public class DexaminePlugin extends Plugin
 				}
 			}
 
-			collectionView.setScrollHeight(y + 43);  // y + image height (40) + 3 for padding at the bottom.
-			int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-			collectionView.revalidateScroll();
-			client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-			collectionView.setScrollY(0);
-			scrollbar.setScrollY(0);
+			if (scrollbar != null) {
+				collectionView.setScrollHeight(y + 40 + 3); // 3 padding
+				int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
+				collectionView.revalidateScroll();
+				client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
+				collectionView.setScrollY(0);
+				scrollbar.setScrollY(0);
+			}
 		});
 
 		return true;
@@ -671,7 +687,14 @@ public class DexaminePlugin extends Plugin
 		clientThread.invokeLater(() -> {
 			Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
 			Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-			combatAchievementsButton.setHidden(true);
+			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
+			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
+			if (collectionViewHeader == null || collectionView == null) {
+				return;
+			}
+			if (combatAchievementsButton != null) {
+				combatAchievementsButton.setHidden(true);
+			}
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + objectExamineLogs.values().size() + "/???");
@@ -680,8 +703,6 @@ public class DexaminePlugin extends Plugin
 				headerComponents[2].setText("Examines: <col=ffff00>" + objectExamineLogs.values().size() + "/???");
 			}
 
-			Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-			Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
 			collectionView.deleteAllChildren();
 
 			int index = 0;
@@ -701,12 +722,14 @@ public class DexaminePlugin extends Plugin
 				}
 			}
 
-			collectionView.setScrollHeight(y + 43);  // y + image height (40) + 3 for padding at the bottom.
-			int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-			collectionView.revalidateScroll();
-			client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-			collectionView.setScrollY(0);
-			scrollbar.setScrollY(0);
+			if (scrollbar != null) {
+				collectionView.setScrollHeight(y + 40 + 3); // 3 padding
+				int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
+				collectionView.revalidateScroll();
+				client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
+				collectionView.setScrollY(0);
+				scrollbar.setScrollY(0);
+			}
 		});
 
 		return true;
