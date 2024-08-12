@@ -34,7 +34,7 @@ import java.util.function.Function;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Dexamine"
+	name = "Examine Log (Dexamine)"
 )
 public class DexaminePlugin extends Plugin
 {
