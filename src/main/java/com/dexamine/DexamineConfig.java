@@ -14,18 +14,23 @@ public interface DexamineConfig extends Config
 			position = 1
 	)
 	String logsSection = "logs";
+
+	@ConfigItem(keyName = "enableCustomCollectionLog", name = "Custom Collection Log Section", description = "Enable Custom Collection Log Section", section = logsSection)
+	default boolean enableCustomCollectionLog() {
+		return true;
+	}
 	@ConfigItem(keyName = "trackItem", name = "Track Items", description = "Track Item Logs", section = logsSection)
 	default boolean trackItem() {
-		return false;
+		return true;
 	}
 
 	@ConfigItem(keyName = "trackNPC",name = "Track NPCs", description = "Track NPC Logs", section = logsSection)
 	default boolean trackNPC() {
-		return false;
+		return true;
 	}
 
 	@ConfigItem(keyName = "trackObject", name = "Track Objects", description = "Track Object Logs", section = logsSection)
 	default boolean trackObject() {
-		return false;
+		return true;
 	}
 }
