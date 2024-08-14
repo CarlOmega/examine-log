@@ -9,10 +9,7 @@ import net.runelite.api.*;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.widgets.ComponentID;
-import net.runelite.api.widgets.JavaScriptCallback;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetModalMode;
+import net.runelite.api.widgets.*;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
@@ -27,8 +24,10 @@ import net.runelite.client.util.Text;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
+import java.awt.*;
 import java.util.Deque;
 import java.util.*;
+import java.util.List;
 import java.util.function.Function;
 
 
@@ -90,24 +89,22 @@ public class DexaminePlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		log.info("Dexamine started!");
-		if (config.trackItem()) {
-			String json = configManager.getConfiguration(CONFIG_GROUP, "item_logs");
-			if (!Strings.isNullOrEmpty(json)) {
-				itemExamineLogs = gson.fromJson(json, new TypeToken<Map<String, ItemExamineLog>>() {}.getType());
-			}
+
+		String itemJson = configManager.getConfiguration(CONFIG_GROUP, "item_logs");
+		if (!Strings.isNullOrEmpty(itemJson)) {
+			itemExamineLogs = gson.fromJson(itemJson, new TypeToken<Map<String, ItemExamineLog>>() {}.getType());
 		}
-		if (config.trackNPC()) {
-			String json = configManager.getConfiguration(CONFIG_GROUP, "npc_logs");
-			if (!Strings.isNullOrEmpty(json)) {
-				npcExamineLogs = gson.fromJson(json, new TypeToken<Map<String, NPCExamineLog>>() {}.getType());
-			}
+
+		String npcJson = configManager.getConfiguration(CONFIG_GROUP, "npc_logs");
+		if (!Strings.isNullOrEmpty(npcJson)) {
+			npcExamineLogs = gson.fromJson(npcJson, new TypeToken<Map<String, NPCExamineLog>>() {}.getType());
 		}
-		if (config.trackNPC()) {
-			String json = configManager.getConfiguration(CONFIG_GROUP, "object_logs");
-			if (!Strings.isNullOrEmpty(json)) {
-				objectExamineLogs = gson.fromJson(json, new TypeToken<Map<String, ObjectExamineLog>>() {}.getType());
-			}
+
+		String objectJson = configManager.getConfiguration(CONFIG_GROUP, "object_logs");
+		if (!Strings.isNullOrEmpty(objectJson)) {
+			objectExamineLogs = gson.fromJson(objectJson, new TypeToken<Map<String, ObjectExamineLog>>() {}.getType());
 		}
+
 
 	}
 
@@ -142,7 +139,7 @@ public class DexaminePlugin extends Plugin
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
-		if (!event.getMenuOption().equals("Examine") || client.getWidget(ComponentID.BANK_CONTAINER) != null)
+		if (!event.getMenuOption().equals("Examine"))
 		{
 			return;
 		}
@@ -158,13 +155,28 @@ public class DexaminePlugin extends Plugin
 				final ItemComposition itemComposition = itemManager.getItemComposition(event.getId());
 				id = event.getId();
 				name = itemComposition.getName();
+				// treat all banknotes as the same item
+				if (itemComposition.getNote() != -1) {
+					id = 799;
+					name = "Bank note";
+				}
 				break;
 			}
 			case CC_OP_LOW_PRIORITY: {
+				// Only count items in players inventory otherwise can abuse with multiple other widgets
+				Widget widget = event.getWidget();
+				if (widget == null || widget.getParent().getId() != ComponentID.INVENTORY_CONTAINER) {
+					return;
+				}
 				type = ChatMessageType.ITEM_EXAMINE;
 				final ItemComposition itemComposition = itemManager.getItemComposition(event.getItemId());
 				id = event.getItemId();
 				name = itemComposition.getName();
+				// treat all banknotes as the same item
+				if (itemComposition.getNote() != -1) {
+					id = 799;
+					name = "Bank note";
+				}
 				break;
 			}
 			case EXAMINE_NPC: {
@@ -736,7 +748,7 @@ public class DexaminePlugin extends Plugin
 	}
 
 	private void addItemToCollectionLog(Widget collectionView, Integer itemId, String examineText, int x, int y, int index) {
-		String itemName = itemManager.getItemComposition(itemId).getName();
+		String itemName = itemId == 799 ? "Bank note" : itemManager.getItemComposition(itemId).getName();
 		Widget newItem = collectionView.createChild(index, 5);
 		newItem.setContentType(0);
 		newItem.setItemId(itemId);
@@ -782,16 +794,26 @@ public class DexaminePlugin extends Plugin
 
 	private void handleItemAction(String name, String examineText, ScriptEvent event) {
         if (event.getOp() == 2) {
-            final ChatMessageBuilder examination = new ChatMessageBuilder()
+            final ChatMessageBuilder title = new ChatMessageBuilder()
 					.append(ChatColorType.HIGHLIGHT)
-					.append("Examines for " + name + ": ")
-                    .append(ChatColorType.NORMAL)
-                    .append(examineText);
+					.append("Examine log")
+					.append(ChatColorType.NORMAL)
+					.append(" [")
+					.append(new Color(0,0,255), name)
+					.append("]: ");
 
             chatMessageManager.queue(QueuedMessage.builder()
-							.type(ChatMessageType.CONSOLE)
-							.runeLiteFormattedMessage(examination.build())
-							.build());
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(title.build())
+					.build());
+
+			final ChatMessageBuilder examination = new ChatMessageBuilder()
+					.append(examineText);
+
+			chatMessageManager.queue(QueuedMessage.builder()
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(examination.build())
+					.build());
         }
 	}
 
@@ -800,7 +822,11 @@ public class DexaminePlugin extends Plugin
 			int i = 1;
 			final ChatMessageBuilder title = new ChatMessageBuilder()
 					.append(ChatColorType.HIGHLIGHT)
-					.append("Examines for " + name + ":");
+					.append("Examine log")
+					.append(ChatColorType.NORMAL)
+					.append(" [")
+					.append(new Color(0,0,255), name)
+					.append("]: ");
 
 			chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
