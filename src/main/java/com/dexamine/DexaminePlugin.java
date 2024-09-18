@@ -1,11 +1,13 @@
 package com.dexamine;
 
-import com.google.common.base.Strings;
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
@@ -16,15 +18,24 @@ import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.RuneScapeProfileType;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.util.Text;
+import static net.runelite.client.RuneLite.RUNELITE_DIR;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import java.awt.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.text.SimpleDateFormat;
 import java.util.Deque;
 import java.util.*;
 import java.util.List;
@@ -37,7 +48,6 @@ import java.util.function.Function;
 )
 public class DexaminePlugin extends Plugin
 {
-	private static final String CONFIG_GROUP = "dexamine";
 	@Inject
 	private Client client;
 
@@ -61,7 +71,12 @@ public class DexaminePlugin extends Plugin
 
 	private final Deque<PendingExamine> pending = new ArrayDeque<>();
 
-	private Map<String, ItemExamineLog> itemExamineLogs = new HashMap<>();
+
+	private final File EXAMINE_LOG_DIR = new File(RUNELITE_DIR, "examine-log");
+	private static final String ITEM_LOGS = "item-logs";
+	private static final String NPC_LOGS = "npc-logs";
+	private static final String OBJECT_LOGS = "object-logs";
+	private Map<String, BaseExamineLog> itemExamineLogs = new HashMap<>();
 	private Map<String, NPCExamineLog> npcExamineLogs = new HashMap<>();
 	private Map<String, ObjectExamineLog> objectExamineLogs = new HashMap<>();
 
@@ -89,23 +104,73 @@ public class DexaminePlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		log.info("Dexamine started!");
+		EXAMINE_LOG_DIR.mkdirs();
+		loadExamineLogsFromDisk();
+	}
 
-		String itemJson = configManager.getConfiguration(CONFIG_GROUP, "item_logs");
-		if (!Strings.isNullOrEmpty(itemJson)) {
-			itemExamineLogs = gson.fromJson(itemJson, new TypeToken<Map<String, ItemExamineLog>>() {}.getType());
+	public Path getLogFilePath(File playerFolder, String examineLogName) {
+		File examineLogFile = new File(playerFolder, examineLogName + ".json");
+		return  examineLogFile.toPath();
+	}
+
+	private File getPlayerFolder(String playerDir) {
+		RuneScapeProfileType profileType = RuneScapeProfileType.getCurrent(this.client);
+		if (profileType != RuneScapeProfileType.STANDARD) {
+			playerDir = playerDir + "-" + Text.titleCase(profileType);
+		}
+		File playerFolder = new File(EXAMINE_LOG_DIR, playerDir);
+		playerFolder.mkdirs();
+		return playerFolder;
+	}
+
+	public void writeLogsToDisk(String examineLogName, String examineLogs) {
+		if (this.client.getLocalPlayer() == null || this.client.getLocalPlayer().getName() == null) {
+			return;
+		}
+		File playerFolder = getPlayerFolder(this.client.getLocalPlayer().getName());
+		Path filePath = getLogFilePath(playerFolder, examineLogName);
+		try (BufferedWriter writer = Files.newBufferedWriter(filePath)) {
+			writer.write(examineLogs);
+		} catch (IOException e) {
+			log.error("Unable to write examine logs to: " + filePath, e);
+		}
+	}
+
+	public void loadExamineLogsFromDisk() {
+		if (this.client.getLocalPlayer() == null || this.client.getLocalPlayer().getName() == null) {
+			return;
+		}
+		File playerFolder = getPlayerFolder(this.client.getLocalPlayer().getName());
+
+		final Path itemLogsPath = getLogFilePath(playerFolder, ITEM_LOGS);
+		if (Files.exists(itemLogsPath)) {
+			try (BufferedReader reader = Files.newBufferedReader(itemLogsPath);
+				 JsonReader jsonReader = new JsonReader(reader)) {
+				itemExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, BaseExamineLog>>() {}.getType());
+			} catch (IOException | JsonSyntaxException e) {
+				log.error("Unable to read item logs at: " + itemLogsPath, e);
+			}
 		}
 
-		String npcJson = configManager.getConfiguration(CONFIG_GROUP, "npc_logs");
-		if (!Strings.isNullOrEmpty(npcJson)) {
-			npcExamineLogs = gson.fromJson(npcJson, new TypeToken<Map<String, NPCExamineLog>>() {}.getType());
+		final Path npcExamineLogsPath = getLogFilePath(playerFolder, NPC_LOGS);
+		if (Files.exists(npcExamineLogsPath)) {
+			try (BufferedReader reader = Files.newBufferedReader(npcExamineLogsPath);
+				 JsonReader jsonReader = new JsonReader(reader)) {
+				npcExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, NPCExamineLog>>() {}.getType());
+			} catch (IOException | JsonSyntaxException e) {
+				log.error("Unable to read npc logs at: " + itemLogsPath, e);
+			}
 		}
 
-		String objectJson = configManager.getConfiguration(CONFIG_GROUP, "object_logs");
-		if (!Strings.isNullOrEmpty(objectJson)) {
-			objectExamineLogs = gson.fromJson(objectJson, new TypeToken<Map<String, ObjectExamineLog>>() {}.getType());
+		final Path objectExamineLogsPath = getLogFilePath(playerFolder, NPC_LOGS);
+		if (Files.exists(objectExamineLogsPath)) {
+			try (BufferedReader reader = Files.newBufferedReader(objectExamineLogsPath);
+				 JsonReader jsonReader = new JsonReader(reader)) {
+				objectExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, ObjectExamineLog>>() {}.getType());
+			} catch (IOException | JsonSyntaxException e) {
+				log.error("Unable to read object logs at: " + itemLogsPath, e);
+			}
 		}
-
-
 	}
 
 	@Override
@@ -117,16 +182,13 @@ public class DexaminePlugin extends Plugin
 
 	void saveLogs() {
 		if (config.trackItem() && !itemExamineLogs.isEmpty()) {
-			String json = gson.toJson(itemExamineLogs);
-			configManager.setConfiguration(CONFIG_GROUP, "item_logs", json);
+			writeLogsToDisk(ITEM_LOGS, gson.toJson(itemExamineLogs));
 		}
 		if (config.trackNPC() && !npcExamineLogs.isEmpty()) {
-			String json = gson.toJson(npcExamineLogs);
-			configManager.setConfiguration(CONFIG_GROUP, "npc_logs", json);
+			writeLogsToDisk(NPC_LOGS, gson.toJson(npcExamineLogs));
 		}
 		if (config.trackObject() && !objectExamineLogs.isEmpty()) {
-			String json = gson.toJson(objectExamineLogs);
-			configManager.setConfiguration(CONFIG_GROUP, "object_logs", json);
+			writeLogsToDisk(OBJECT_LOGS, gson.toJson(objectExamineLogs));
 		}
 	}
 
@@ -248,36 +310,41 @@ public class DexaminePlugin extends Plugin
 		log.debug("Got examine type {} {}: {}", pendingExamine.getType(), pendingExamine.getId(), event.getMessage());
 		pendingExamine.setExamineText(text);
 
+		String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
+		WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
+		BaseExamineLog examineLog = new BaseExamineLog(pendingExamine.getId(), pendingExamine.getExamineText(), timestamp, playerPos);
+
 		if (event.getType() == ChatMessageType.ITEM_EXAMINE && config.trackItem()) {
 			if (itemExamineLogs.containsKey(pendingExamine.getName())) {
 				return;
 			}
-			itemExamineLogs.put(pendingExamine.getName(), new ItemExamineLog(pendingExamine.getId(), pendingExamine.getExamineText()));
+			itemExamineLogs.put(pendingExamine.getName(), examineLog);
 		} else if (event.getType() == ChatMessageType.NPC_EXAMINE && config.trackNPC()) {
 			NPCExamineLog npcLog = npcExamineLogs.get(pendingExamine.getName());
 			if (npcLog != null) {
 				npcLog.ids.add(pendingExamine.getId());
-				if (!npcLog.examineTexts.add(pendingExamine.getExamineText())) {
+				if (npcLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
 					return;
 				}
+				npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
 			} else {
 				npcLog = new NPCExamineLog();
-				npcLog.examineTexts.add(pendingExamine.getExamineText());
 				npcLog.ids.add(pendingExamine.getId());
+				npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
 				npcExamineLogs.put(pendingExamine.getName(), npcLog);
 			}
 		} else if (event.getType() == ChatMessageType.OBJECT_EXAMINE && config.trackNPC()) {
 			ObjectExamineLog objectLog = objectExamineLogs.get(pendingExamine.getName());
 			if (objectLog != null) {
-				boolean a = objectLog.examineTexts.add(pendingExamine.getExamineText());
-				boolean b = objectLog.ids.add(pendingExamine.getId());
-				if (!a && !b) {
+				objectLog.ids.add(pendingExamine.getId());
+				if (!objectLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
 					return;
 				}
+				objectLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
 			} else {
 				objectLog = new ObjectExamineLog();
-				objectLog.examineTexts.add(pendingExamine.getExamineText());
 				objectLog.ids.add(pendingExamine.getId());
+				objectLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
 				objectExamineLogs.put(pendingExamine.getName(), objectLog);
 			}
 		} else {
@@ -596,12 +663,13 @@ public class DexaminePlugin extends Plugin
 			if (combatAchievementsButton != null) {
 				combatAchievementsButton.setHidden(true);
 			}
+
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + itemExamineLogs.values().size() + "/???");
-			if (headerComponents.length > 2) {
-				headerComponents[1].setText("");
-				headerComponents[2].setText("Examines: <col=ffff00>" + itemExamineLogs.values().size() + "/???");
+			// Some collection logs have more than two titles this is just to clean up
+			for (int i = 2; i < headerComponents.length; i++) {
+				headerComponents[i].setText("");
 			}
 
 			collectionView.deleteAllChildren();
@@ -610,7 +678,7 @@ public class DexaminePlugin extends Plugin
 			int y = 0;
 			int yIncrement = 40; // sprite height
 			int xIncrement = 42; // sprite width
-			for (ItemExamineLog itemExamineLog : itemExamineLogs.values()) {
+			for (BaseExamineLog itemExamineLog : itemExamineLogs.values()) {
 				addItemToCollectionLog(collectionView, itemExamineLog.getId(), itemExamineLog.getExamineText(), x, y, index);
 				x = x + xIncrement;
 				index++;
@@ -650,12 +718,13 @@ public class DexaminePlugin extends Plugin
 			if (combatAchievementsButton != null) {
 				combatAchievementsButton.setHidden(true);
 			}
+
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + npcExamineLogs.values().size() + "/???");
-			if (headerComponents.length > 2) {
-				headerComponents[1].setText("");
-				headerComponents[2].setText("Examines: <col=ffff00>" + npcExamineLogs.values().size() + "/???");
+			// Some collection logs have more than two titles this is just to clean up
+			for (int i = 2; i < headerComponents.length; i++) {
+				headerComponents[i].setText("");
 			}
 
 			collectionView.deleteAllChildren();
@@ -667,7 +736,7 @@ public class DexaminePlugin extends Plugin
 			int xIncrement = 42;
 			for (String key : npcExamineLogs.keySet()) {
 				NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
-				String[] examineTexts = npcExamineLog.examineTexts.toArray(String[]::new);
+				String[] examineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
 				addEntryToCollectionLog(collectionView, ItemID.FAKE_MAN, key, examineTexts, x, y, index);
 				x = x + xIncrement;
 				index++;
@@ -710,9 +779,9 @@ public class DexaminePlugin extends Plugin
 			Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
 			headerComponents[0].setText(examineName);
 			headerComponents[1].setText("Examines: <col=ffff00>" + objectExamineLogs.values().size() + "/???");
-			if (headerComponents.length > 2) {
-				headerComponents[1].setText("");
-				headerComponents[2].setText("Examines: <col=ffff00>" + objectExamineLogs.values().size() + "/???");
+			// Some collection logs have more than two titles this is just to clean up
+			for (int i = 2; i < headerComponents.length; i++) {
+				headerComponents[i].setText("");
 			}
 
 			collectionView.deleteAllChildren();
@@ -724,7 +793,7 @@ public class DexaminePlugin extends Plugin
 			int xIncrement = 42;
 			for (String key : objectExamineLogs.keySet()) {
 				ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
-				String[] examineTexts = objectExamineLog.examineTexts.toArray(String[]::new);
+				String[] examineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
 				addEntryToCollectionLog(collectionView, ItemID.WOODEN_CHAIR, key, examineTexts, x, y, index);
 				x = x + xIncrement;
 				index++;
