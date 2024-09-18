@@ -162,7 +162,7 @@ public class DexaminePlugin extends Plugin
 			}
 		}
 
-		final Path objectExamineLogsPath = getLogFilePath(playerFolder, NPC_LOGS);
+		final Path objectExamineLogsPath = getLogFilePath(playerFolder, OBJECT_LOGS);
 		if (Files.exists(objectExamineLogsPath)) {
 			try (BufferedReader reader = Files.newBufferedReader(objectExamineLogsPath);
 				 JsonReader jsonReader = new JsonReader(reader)) {
@@ -333,11 +333,11 @@ public class DexaminePlugin extends Plugin
 				npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
 				npcExamineLogs.put(pendingExamine.getName(), npcLog);
 			}
-		} else if (event.getType() == ChatMessageType.OBJECT_EXAMINE && config.trackNPC()) {
+		} else if (event.getType() == ChatMessageType.OBJECT_EXAMINE && config.trackObject()) {
 			ObjectExamineLog objectLog = objectExamineLogs.get(pendingExamine.getName());
 			if (objectLog != null) {
 				objectLog.ids.add(pendingExamine.getId());
-				if (!objectLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
+				if (objectLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
 					return;
 				}
 				objectLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
