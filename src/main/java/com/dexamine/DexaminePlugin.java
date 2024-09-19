@@ -373,7 +373,9 @@ public class DexaminePlugin extends Plugin
 		if (!config.enableCollectionLogPopup()) {
 			return;
 		}
-		WidgetNode widgetNode = client.openInterface((161 << 16) | 13, 660, WidgetModalMode.MODAL_CLICKTHROUGH);
+
+		int tli = client.getTopLevelInterfaceId();
+		WidgetNode widgetNode = client.openInterface((tli << 16) | 13, 660, WidgetModalMode.MODAL_CLICKTHROUGH);
 		client.runScript(3343,
 				"Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
 				chatTypeToType(pendingExamine.getType()), pendingExamine.getExamineText()),
