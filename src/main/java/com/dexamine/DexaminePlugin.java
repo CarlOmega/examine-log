@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.widgets.*;
@@ -20,6 +21,7 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.RuneScapeProfileType;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -73,6 +75,7 @@ public class DexaminePlugin extends Plugin
 
 
 	private final File EXAMINE_LOG_DIR = new File(RUNELITE_DIR, "examine-log");
+	private File playerFolder = null;
 	private static final String ITEM_LOGS = "item-logs";
 	private static final String NPC_LOGS = "npc-logs";
 	private static final String OBJECT_LOGS = "object-logs";
@@ -105,12 +108,26 @@ public class DexaminePlugin extends Plugin
 	{
 		log.info("Dexamine started!");
 		EXAMINE_LOG_DIR.mkdirs();
-		loadExamineLogsFromDisk();
 	}
 
-	public Path getLogFilePath(File playerFolder, String examineLogName) {
-		File examineLogFile = new File(playerFolder, examineLogName + ".json");
-		return  examineLogFile.toPath();
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged gameStateChanged) {
+		if (gameStateChanged.getGameState() != GameState.LOGGED_IN) {
+			return;
+		}
+
+		String profileKey = configManager.getRSProfileKey();
+		loadExamineLogsFromDisk(profileKey);
+	}
+
+	@Subscribe
+	public void onClientShutdown(ClientShutdown event) {
+		saveLogs();
+	}
+
+	public Path getLogFilePath(String examineLogName) {
+		File examineLogFile = new File(this.playerFolder, examineLogName + ".json");
+		return examineLogFile.toPath();
 	}
 
 	private File getPlayerFolder(String playerDir) {
@@ -124,11 +141,10 @@ public class DexaminePlugin extends Plugin
 	}
 
 	public void writeLogsToDisk(String examineLogName, String examineLogs) {
-		if (this.client.getLocalPlayer() == null || this.client.getLocalPlayer().getName() == null) {
+		if (this.playerFolder == null) {
 			return;
 		}
-		File playerFolder = getPlayerFolder(this.client.getLocalPlayer().getName());
-		Path filePath = getLogFilePath(playerFolder, examineLogName);
+		Path filePath = getLogFilePath(examineLogName);
 		try (BufferedWriter writer = Files.newBufferedWriter(filePath)) {
 			writer.write(examineLogs);
 		} catch (IOException e) {
@@ -136,13 +152,10 @@ public class DexaminePlugin extends Plugin
 		}
 	}
 
-	public void loadExamineLogsFromDisk() {
-		if (this.client.getLocalPlayer() == null || this.client.getLocalPlayer().getName() == null) {
-			return;
-		}
-		File playerFolder = getPlayerFolder(this.client.getLocalPlayer().getName());
+	public void loadExamineLogsFromDisk(String profileKey) {
+		this.playerFolder = getPlayerFolder(profileKey);
 
-		final Path itemLogsPath = getLogFilePath(playerFolder, ITEM_LOGS);
+		final Path itemLogsPath = getLogFilePath(ITEM_LOGS);
 		if (Files.exists(itemLogsPath)) {
 			try (BufferedReader reader = Files.newBufferedReader(itemLogsPath);
 				 JsonReader jsonReader = new JsonReader(reader)) {
@@ -152,7 +165,7 @@ public class DexaminePlugin extends Plugin
 			}
 		}
 
-		final Path npcExamineLogsPath = getLogFilePath(playerFolder, NPC_LOGS);
+		final Path npcExamineLogsPath = getLogFilePath(NPC_LOGS);
 		if (Files.exists(npcExamineLogsPath)) {
 			try (BufferedReader reader = Files.newBufferedReader(npcExamineLogsPath);
 				 JsonReader jsonReader = new JsonReader(reader)) {
@@ -162,7 +175,7 @@ public class DexaminePlugin extends Plugin
 			}
 		}
 
-		final Path objectExamineLogsPath = getLogFilePath(playerFolder, OBJECT_LOGS);
+		final Path objectExamineLogsPath = getLogFilePath(OBJECT_LOGS);
 		if (Files.exists(objectExamineLogsPath)) {
 			try (BufferedReader reader = Files.newBufferedReader(objectExamineLogsPath);
 				 JsonReader jsonReader = new JsonReader(reader)) {
@@ -309,6 +322,12 @@ public class DexaminePlugin extends Plugin
 
 		log.debug("Got examine type {} {}: {}", pendingExamine.getType(), pendingExamine.getId(), event.getMessage());
 		pendingExamine.setExamineText(text);
+
+		if (this.playerFolder == null) {
+			String profileKey = configManager.getRSProfileKey();
+			log.debug("Reloading logs before saving on profile: {}", profileKey);
+			loadExamineLogsFromDisk(profileKey);
+		}
 
 		String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
 		WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
