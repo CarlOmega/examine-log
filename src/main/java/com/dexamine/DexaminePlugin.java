@@ -98,12 +98,14 @@ public class DexaminePlugin extends Plugin {
 
     @Subscribe
     public void onGameStateChanged(GameStateChanged gameStateChanged) {
-        if (gameStateChanged.getGameState() != GameState.LOGGED_IN) {
-            return;
+        switch (gameStateChanged.getGameState()) {
+            case LOGGED_IN:
+                loadExamineLogsFromDisk();
+                break;
+            case LOGIN_SCREEN:
+            case HOPPING:
+                playerFolder = null;
         }
-
-        String profileKey = configManager.getRSProfileKey();
-        loadExamineLogsFromDisk(profileKey);
     }
 
     @Subscribe
@@ -138,7 +140,14 @@ public class DexaminePlugin extends Plugin {
         }
     }
 
-    public void loadExamineLogsFromDisk(String profileKey) {
+    public void loadExamineLogsFromDisk() {
+        if (this.playerFolder != null) {
+            return;
+        }
+
+        String profileKey = configManager.getRSProfileKey();
+        log.debug("Loading logs for profile: {}", profileKey);
+
         this.playerFolder = getPlayerFolder(profileKey);
 
         final Path itemLogsPath = getLogFilePath(ITEM_LOGS);
@@ -304,11 +313,7 @@ public class DexaminePlugin extends Plugin {
         log.debug("Got examine type {} {}: {}", pendingExamine.getType(), pendingExamine.getId(), event.getMessage());
         pendingExamine.setExamineText(text);
 
-        if (this.playerFolder == null) {
-            String profileKey = configManager.getRSProfileKey();
-            log.debug("Reloading logs before saving on profile: {}", profileKey);
-            loadExamineLogsFromDisk(profileKey);
-        }
+        loadExamineLogsFromDisk();
 
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
         WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
