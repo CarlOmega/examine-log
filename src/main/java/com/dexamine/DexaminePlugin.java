@@ -103,8 +103,12 @@ public class DexaminePlugin extends Plugin {
                 loadExamineLogsFromDisk();
                 break;
             case LOGIN_SCREEN:
-            case HOPPING:
+            case HOPPING: {
                 playerFolder = null;
+                itemExamineLogs = new HashMap<>();
+                npcExamineLogs = new HashMap<>();
+                objectExamineLogs = new HashMap<>();
+            }
         }
     }
 
@@ -146,9 +150,9 @@ public class DexaminePlugin extends Plugin {
         }
 
         String profileKey = configManager.getRSProfileKey();
-        log.debug("Loading logs for profile: {}", profileKey);
 
         this.playerFolder = getPlayerFolder(profileKey);
+        log.debug("Loading logs for profile: {}", this.playerFolder.getName());
 
         final Path itemLogsPath = getLogFilePath(ITEM_LOGS);
         if (Files.exists(itemLogsPath)) {
