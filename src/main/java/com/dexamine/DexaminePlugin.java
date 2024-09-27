@@ -57,6 +57,7 @@ public class DexaminePlugin extends Plugin {
     private static final int COLLECTION_LOG_DRAW_LIST = 2730;
     private static final int COLLECTION_LOG_ITEM_CLICK = 2733;
     final int COMBAT_ACHIEVEMENT_BUTTON = 20;
+    final int COLLECTION_LOG_POPUP_WIDGET = 660;
     final int COLLECTION_LOG_GROUP_ID = 621;
     final int COLLECTION_VIEW = 36;
     final int COLLECTION_VIEW_SCROLLBAR = 37;
@@ -123,7 +124,7 @@ public class DexaminePlugin extends Plugin {
     }
 
     private File getPlayerFolder(String playerDir) {
-        RuneScapeProfileType profileType = RuneScapeProfileType.getCurrent(this.client);
+        RuneScapeProfileType profileType = RuneScapeProfileType.getCurrent(client);
         if (profileType != RuneScapeProfileType.STANDARD) {
             playerDir = playerDir + "-" + Text.titleCase(profileType);
         }
@@ -382,15 +383,16 @@ public class DexaminePlugin extends Plugin {
             return;
         }
 
-        int tli = client.getTopLevelInterfaceId();
-        WidgetNode widgetNode = client.openInterface((tli << 16) | 13, 660, WidgetModalMode.MODAL_CLICKTHROUGH);
+        // Handles both resizable and fixed modes now.
+        int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 13 : 43);
+        WidgetNode widgetNode = client.openInterface(componentId, COLLECTION_LOG_POPUP_WIDGET, WidgetModalMode.MODAL_CLICKTHROUGH);
         client.runScript(3343,
                 "Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
                         chatTypeToType(pendingExamine.getType()), pendingExamine.getExamineText()),
                 -1);
 
         clientThread.invokeLater(() -> {
-            Widget w = client.getWidget(660, 1);
+            Widget w = client.getWidget(COLLECTION_LOG_POPUP_WIDGET, 1);
             if (w == null || w.getWidth() > 0) {
                 return false;
             }
