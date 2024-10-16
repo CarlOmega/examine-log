@@ -1,49 +1,56 @@
 package com.dexamine;
 
-import net.runelite.client.config.Config;
-import net.runelite.client.config.ConfigGroup;
-import net.runelite.client.config.ConfigItem;
-import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.*;
 
 @ConfigGroup("dexamine")
 public interface DexamineConfig extends Config {
     @ConfigSection(
             name = "Collection Log",
             description = "Custom Collection log things.",
-            position = 1,
-            closedByDefault = true
+            position = 1
     )
     String logsSection = "logs";
 
-    @ConfigSection(
-            name = "Examine Types",
-            description = "What examine logs are we tracking?",
-            position = 2
+    @ConfigItem(
+            keyName = "enableCollectionLogPopup",
+            name = "Custom Collection Log Popup",
+            description = "Enable Collection Log Popup",
+            section = logsSection
     )
-    String examineTypes = "types";
-
-    @ConfigItem(keyName = "enableCollectionLogPopup", name = "Custom Collection Log Popup", description = "Enable Collection Log Popup", section = logsSection)
     default boolean enableCollectionLogPopup() {
         return true;
     }
 
-    @ConfigItem(keyName = "enableCustomCollectionLog", name = "Custom Collection Log Entries", description = "Enable Custom Collection Log Entries", section = logsSection)
+    @ConfigItem(
+            keyName = "enableCustomCollectionLog",
+            name = "Custom Examine Log Interface",
+            description = "Enable Custom Examine Log Interface, right click collection log in character summary.",
+            section = logsSection
+    )
     default boolean enableCustomCollectionLog() {
         return true;
     }
 
-    @ConfigItem(keyName = "trackItem", name = "Track Items", description = "Track Item Logs", section = examineTypes)
-    default boolean trackItem() {
+    @ConfigItem(
+            keyName = "enableMenuHints",
+            name = "Examine Menu Option Hints",
+            description = "Enable Showing '*' for unseen examines",
+            section = logsSection
+    )
+    default boolean enableMenuHints() {
         return true;
     }
 
-    @ConfigItem(keyName = "trackNPC", name = "Track NPCs", description = "Track NPC Logs", section = examineTypes)
-    default boolean trackNPC() {
-        return true;
-    }
-
-    @ConfigItem(keyName = "trackObject", name = "Track Objects", description = "Track Object Logs", section = examineTypes)
-    default boolean trackObject() {
-        return true;
+    @Range(
+            max = 20
+    )
+    @ConfigItem(
+            keyName = "hintCount",
+            name = "Examine Log Hint Count",
+            description = "Shows ... to help finding new examine texts",
+            section = logsSection
+    )
+    default int hintCount() {
+        return 0;
     }
 }

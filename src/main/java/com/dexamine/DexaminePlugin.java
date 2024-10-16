@@ -8,16 +8,10 @@ import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.*;
 import net.runelite.api.widgets.*;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.chat.ChatColorType;
-import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
-import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.RuneScapeProfileType;
 import net.runelite.client.eventbus.Subscribe;
@@ -31,18 +25,18 @@ import static net.runelite.client.RuneLite.RUNELITE_DIR;
 
 import javax.annotation.Nullable;
 import javax.inject.Inject;
-import java.awt.*;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.Deque;
 import java.util.*;
 import java.util.List;
-import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 
 @Slf4j
@@ -53,22 +47,10 @@ public class DexaminePlugin extends Plugin {
     private static final String ITEM_LOGS = "item-logs";
     private static final String NPC_LOGS = "npc-logs";
     private static final String OBJECT_LOGS = "object-logs";
-    private static final int COLLECTION_LOG_OPEN_OTHER = 2728;
-    private static final int COLLECTION_LOG_DRAW_LIST = 2730;
-    private static final int COLLECTION_LOG_ITEM_CLICK = 2733;
-    final int COMBAT_ACHIEVEMENT_BUTTON = 20;
     final int COLLECTION_LOG_POPUP_WIDGET = 660;
-    final int COLLECTION_LOG_GROUP_ID = 621;
-    final int COLLECTION_VIEW = 36;
-    final int COLLECTION_VIEW_SCROLLBAR = 37;
-    final int COLLECTION_VIEW_HEADER = 19;
-    final int COLLECTION_VIEW_CATEGORIES_CONTAINER = 28;
-    final int COLLECTION_VIEW_CATEGORIES_RECTANGLE = 33;
-    final int COLLECTION_VIEW_CATEGORIES_TEXT = 34;
-    final int COLLECTION_VIEW_CATEGORIES_SCROLLBAR = 28;
-    final int SELECTED_OPACITY = 200;
-    final int UNSELECTED_OPACITY_EVEN = 235;
-    final int UNSELECTED_OPACITY_ODD = 255;
+    final int SKILL_GUIDE_WIDGET = 860;
+    final int ODD_OPACITY = 200;
+    final int EVEN_OPACITY = 220;
     private final Deque<PendingExamine> pending = new ArrayDeque<>();
     private final File EXAMINE_LOG_DIR = new File(RUNELITE_DIR, "examine-log");
     @Inject
@@ -89,12 +71,18 @@ public class DexaminePlugin extends Plugin {
     private Map<String, BaseExamineLog> itemExamineLogs = new HashMap<>();
     private Map<String, NPCExamineLog> npcExamineLogs = new HashMap<>();
     private Map<String, ObjectExamineLog> objectExamineLogs = new HashMap<>();
-    private String selected = "";
+    private Map<String, String> fullItemExamineLogs = new HashMap<>();
+    private Map<String, List<String>> fullNpcExamineLogs = new HashMap<>();
+    private Map<String, List<String>> fullObjectExamineLogs = new HashMap<>();
+    private WidgetNode examineLogWidgetNode = null;
+    private String openSkillGuideInterfaceSource = "";
+    private String selectedTab = "items";
 
     @Override
     protected void startUp() throws Exception {
         log.info("Dexamine started!");
         EXAMINE_LOG_DIR.mkdirs();
+        loadFullExamineList();
     }
 
     @Subscribe
@@ -189,6 +177,33 @@ public class DexaminePlugin extends Plugin {
         }
     }
 
+    private void loadFullExamineList() throws IOException {
+        try (InputStream in = getClass().getResourceAsStream("item_map.json")) {
+            final InputStreamReader data = new InputStreamReader(in, StandardCharsets.UTF_8);
+            final Type type = new TypeToken<Map<String, String>>() {
+            }.getType();
+            fullItemExamineLogs = gson.fromJson(data, type);
+        } catch (IOException | JsonSyntaxException e) {
+            log.error("Unable to read full items logs at: item_map.json", e);
+        }
+        try (InputStream in = getClass().getResourceAsStream("npc_map.json")) {
+            final InputStreamReader data = new InputStreamReader(in, StandardCharsets.UTF_8);
+            final Type type = new TypeToken<Map<String, List<String>>>() {
+            }.getType();
+            fullNpcExamineLogs = gson.fromJson(data, type);
+        } catch (IOException | JsonSyntaxException e) {
+            log.error("Unable to read full npc logs at npc_map.json", e);
+        }
+        try (InputStream in = getClass().getResourceAsStream("object_map.json")) {
+            final InputStreamReader data = new InputStreamReader(in, StandardCharsets.UTF_8);
+            final Type type = new TypeToken<Map<String, List<String>>>() {
+            }.getType();
+            fullObjectExamineLogs = gson.fromJson(data, type);
+        } catch (IOException | JsonSyntaxException e) {
+            log.error("Unable to read full object logs at object_map.json ", e);
+        }
+    }
+
     @Override
     protected void shutDown() throws Exception {
         log.info("Dexamine stopped!");
@@ -196,13 +211,13 @@ public class DexaminePlugin extends Plugin {
     }
 
     void saveLogs() {
-        if (config.trackItem() && !itemExamineLogs.isEmpty()) {
+        if (!itemExamineLogs.isEmpty()) {
             writeLogsToDisk(ITEM_LOGS, gson.toJson(itemExamineLogs));
         }
-        if (config.trackNPC() && !npcExamineLogs.isEmpty()) {
+        if (!npcExamineLogs.isEmpty()) {
             writeLogsToDisk(NPC_LOGS, gson.toJson(npcExamineLogs));
         }
-        if (config.trackObject() && !objectExamineLogs.isEmpty()) {
+        if (!objectExamineLogs.isEmpty()) {
             writeLogsToDisk(OBJECT_LOGS, gson.toJson(objectExamineLogs));
         }
     }
@@ -214,7 +229,7 @@ public class DexaminePlugin extends Plugin {
 
     @Subscribe
     public void onMenuOptionClicked(MenuOptionClicked event) {
-        if (!event.getMenuOption().equals("Examine")) {
+        if (!event.getMenuOption().startsWith("Examine")) {
             return;
         }
 
@@ -324,12 +339,12 @@ public class DexaminePlugin extends Plugin {
         WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
         BaseExamineLog examineLog = new BaseExamineLog(pendingExamine.getId(), pendingExamine.getExamineText(), timestamp, playerPos);
 
-        if (event.getType() == ChatMessageType.ITEM_EXAMINE && config.trackItem()) {
+        if (event.getType() == ChatMessageType.ITEM_EXAMINE) {
             if (itemExamineLogs.containsKey(pendingExamine.getName())) {
                 return;
             }
             itemExamineLogs.put(pendingExamine.getName(), examineLog);
-        } else if (event.getType() == ChatMessageType.NPC_EXAMINE && config.trackNPC()) {
+        } else if (event.getType() == ChatMessageType.NPC_EXAMINE) {
             NPCExamineLog npcLog = npcExamineLogs.get(pendingExamine.getName());
             if (npcLog != null) {
                 npcLog.ids.add(pendingExamine.getId());
@@ -343,7 +358,7 @@ public class DexaminePlugin extends Plugin {
                 npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
                 npcExamineLogs.put(pendingExamine.getName(), npcLog);
             }
-        } else if (event.getType() == ChatMessageType.OBJECT_EXAMINE && config.trackObject()) {
+        } else if (event.getType() == ChatMessageType.OBJECT_EXAMINE) {
             ObjectExamineLog objectLog = objectExamineLogs.get(pendingExamine.getName());
             if (objectLog != null) {
                 objectLog.ids.add(pendingExamine.getId());
@@ -378,30 +393,98 @@ public class DexaminePlugin extends Plugin {
         }
     }
 
+    @Subscribe
+    public void onMenuEntryAdded(MenuEntryAdded event) {
+        if (config.enableCustomCollectionLog() && event.getMenuEntry().getWidget() != null
+                && event.getMenuEntry().getWidget().getParentId() == ComponentID.CHARACTER_SUMMARY_CONTAINER + 1
+                && Objects.equals(event.getMenuEntry().getOption(), "Collection Log")
+        ) {
+            client.createMenuEntry(-1)
+                    .setOption("Examine Log")
+                    .setTarget(event.getTarget())
+                    .setIdentifier(event.getIdentifier())
+                    .setType(MenuAction.RUNELITE)
+                    .onClick(this::openExamineLog);
+        }
+
+        if (config.enableMenuHints() && event.getMenuEntry() != null && event.getMenuEntry().getOption().equals("Examine")) {
+            MenuEntry entry = event.getMenuEntry();
+            switch (entry.getType()) {
+                case EXAMINE_ITEM_GROUND: {
+                    if (itemExamineLogs.get(Text.removeTags(event.getTarget())) != null) {
+                        return;
+                    }
+                    break;
+                }
+                case CC_OP_LOW_PRIORITY: {
+                    Widget widget = entry.getWidget();
+                    if (widget == null || widget.getParent().getId() != ComponentID.INVENTORY_CONTAINER) {
+                        return;
+                    }
+                    final ItemComposition itemComposition = itemManager.getItemComposition(event.getItemId());
+                    if (itemExamineLogs.get(itemComposition.getName()) != null) {
+                        return;
+                    }
+                    break;
+                }
+                case EXAMINE_NPC: {
+                    NPC npc = entry.getNpc();
+                    if (npc == null || npcExamineLogs.get(npc.getName()) != null) {
+                        return;
+                    }
+                    break;
+                }
+                case EXAMINE_OBJECT: {
+                    TileObject object = findTileObject(client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier());
+                    if (object == null) {
+                        return;
+                    }
+                    ObjectComposition objectDefinition = getObjectComposition(object.getId());
+                    if (objectDefinition == null || objectExamineLogs.get(objectDefinition.getName()) != null) {
+                        return;
+                    }
+                    break;
+                }
+            }
+            entry.setOption("Examine*");
+        }
+    }
+
+    private void openExamineLog(MenuEntry menuEntry) {
+        clientThread.invokeLater(() -> {
+            int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 18 : 42);
+            this.examineLogWidgetNode = client.openInterface(componentId, SKILL_GUIDE_WIDGET, WidgetModalMode.MODAL_NOCLICKTHROUGH);
+            this.openSkillGuideInterfaceSource = "characterSummary";
+            this.selectedTab = "items";
+            client.runScript(1902, 1, 0);
+        });
+    }
+
     private void openPopUp(PendingExamine pendingExamine) {
         if (!config.enableCollectionLogPopup()) {
             return;
         }
-
-        // Handles both resizable and fixed modes now.
-        int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 13 : 43);
-        WidgetNode widgetNode = client.openInterface(componentId, COLLECTION_LOG_POPUP_WIDGET, WidgetModalMode.MODAL_CLICKTHROUGH);
-        client.runScript(3343,
-                "Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
-                        chatTypeToType(pendingExamine.getType()), pendingExamine.getExamineText()),
-                -1);
-
         clientThread.invokeLater(() -> {
-            Widget w = client.getWidget(COLLECTION_LOG_POPUP_WIDGET, 1);
-            if (w == null || w.getWidth() > 0) {
-                return false;
-            }
-            try {
-                client.closeInterface(widgetNode, true);
-            } catch (IllegalArgumentException e) {
-                log.debug("Interface attempted to close, but was no longer valid.");
-            }
-            return true;
+            // Handles both resizable and fixed modes now.
+            int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 13 : 43);
+            WidgetNode widgetNode = client.openInterface(componentId, COLLECTION_LOG_POPUP_WIDGET, WidgetModalMode.MODAL_CLICKTHROUGH);
+            client.runScript(3343,
+                    "Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
+                            chatTypeToType(pendingExamine.getType()), pendingExamine.getExamineText()),
+                    -1);
+
+            clientThread.invokeLater(() -> {
+                Widget w = client.getWidget(COLLECTION_LOG_POPUP_WIDGET, 1);
+                if (w == null || w.getWidth() > 0) {
+                    return false;
+                }
+                try {
+                    client.closeInterface(widgetNode, true);
+                } catch (IllegalArgumentException e) {
+                    log.debug("Interface attempted to close, but was no longer valid.");
+                }
+                return true;
+            });
         });
     }
 
@@ -468,451 +551,265 @@ public class DexaminePlugin extends Plugin {
     }
 
     @Subscribe
-    public void onScriptPostFired(ScriptPostFired event) {
-        if ((event.getScriptId() == COLLECTION_LOG_OPEN_OTHER || event.getScriptId() == COLLECTION_LOG_ITEM_CLICK ||
-                event.getScriptId() == COLLECTION_LOG_DRAW_LIST) && config.enableCustomCollectionLog()) {
-            if (config.trackItem() || config.trackNPC() || config.trackObject()) {
-                clientThread.invokeLater(this::addExamineWidgets);
-            }
-        }
-    }
-
-    void addExamineWidgets() {
-        Widget categoryContainer = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_CONTAINER);
-        Widget logCategoriesRect = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_RECTANGLE);
-        Widget logCategoriesText = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_TEXT);
-        if (logCategoriesRect == null || logCategoriesText == null || categoryContainer == null) {
-            return;
-        }
-        Widget[] categoryRectElements = logCategoriesRect.getDynamicChildren();
-        Widget[] categoryTextElements = logCategoriesText.getDynamicChildren();
-        if (categoryRectElements.length == 0 || categoryRectElements.length != categoryTextElements.length) {
-            return; // The category elements have not been loaded yet.
-        }
-
-        unselectAll(false);
-
-        if (config.trackItem() && Arrays.stream(categoryTextElements).map(Widget::getText).noneMatch("Item Examines"::equals)) {
-            makeExamineRectWidget("Item Examines", logCategoriesRect, categoryRectElements, this::openItemExamineCategory);
-            makeExamineTextWidget("Item Examines", logCategoriesText, categoryTextElements);
-            categoryRectElements = logCategoriesRect.getDynamicChildren();
-            categoryTextElements = logCategoriesText.getDynamicChildren();
-        }
-
-        if (config.trackNPC() && Arrays.stream(categoryTextElements).map(Widget::getText).noneMatch("NPC Examines"::equals)) {
-            makeExamineRectWidget("NPC Examines", logCategoriesRect, categoryRectElements, this::openNPCExamineCategory);
-            makeExamineTextWidget("NPC Examines", logCategoriesText, categoryTextElements);
-            categoryRectElements = logCategoriesRect.getDynamicChildren();
-            categoryTextElements = logCategoriesText.getDynamicChildren();
-        }
-
-        if (config.trackObject() && Arrays.stream(categoryTextElements).map(Widget::getText).noneMatch("Object Examines"::equals)) {
-            makeExamineRectWidget("Object Examines", logCategoriesRect, categoryRectElements, this::openObjectExamineCategory);
-            makeExamineTextWidget("Object Examines", logCategoriesText, categoryTextElements);
-        }
-
-
-        int scrollHeight = categoryRectElements.length * 15;
-        int newHeight = 0;
-        int currentScrollHeight = categoryContainer.getScrollHeight();
-        if (currentScrollHeight > 0 && categoryContainer.getScrollHeight() != scrollHeight) {
-            newHeight = (categoryContainer.getScrollY() * scrollHeight) / categoryContainer.getScrollHeight();
-        }
-
-        categoryContainer.setScrollHeight(scrollHeight);
-        categoryContainer.revalidate();
-        categoryContainer.revalidateScroll();
-
-        Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_SCROLLBAR);
-        if (scrollbar == null) {
-            return;
-        }
-        client.runScript(
-                ScriptID.UPDATE_SCROLLBAR,
-                scrollbar.getId(),
-                categoryContainer.getId(),
-                newHeight
-        );
-        logCategoriesText.setHeightMode(0);
-        logCategoriesRect.setHeightMode(0);
-
-        logCategoriesText.setOriginalHeight(scrollHeight);
-        logCategoriesRect.setOriginalHeight(scrollHeight);
-
-        logCategoriesText.revalidate();
-        logCategoriesRect.revalidate();
-    }
-
-    private void makeExamineRectWidget(String examineName, Widget logCategories, Widget[] categoryElements, Function<Widget, Boolean> openExamineCategory) {
-        int position = categoryElements.length;
-        // Last entry as the template
-        Widget template = categoryElements[categoryElements.length - 1];
-        Widget examineUnlocks = logCategories.createChild(position, template.getType());
-        log.debug("pos: {}, name: {}, len: {}", position, examineName, categoryElements.length);
-        examineUnlocks.setOpacity(position % 2 == 0 ? UNSELECTED_OPACITY_EVEN : UNSELECTED_OPACITY_ODD);
-        examineUnlocks.setName("<col=ff9040>" + examineName + "</col>");
-        if (template.hasListener()) {
-            examineUnlocks.setHasListener(true);
-            examineUnlocks.setAction(1, "View");
-            examineUnlocks.setOnOpListener((JavaScriptCallback) e -> {
-                openExamineCategory.apply(examineUnlocks);
+    public void onScriptPreFired(ScriptPreFired event) {
+        // Catch the close interface failsafe if skill summary is closed normally while examine log is open
+        if (event.getScriptId() == 489 && this.examineLogWidgetNode != null) {
+            clientThread.invokeLater(() -> {
+                client.closeInterface(this.examineLogWidgetNode, true);
+                this.examineLogWidgetNode = null;
+                this.openSkillGuideInterfaceSource = "";
+                return true;
             });
-            examineUnlocks.setOnMouseOverListener((JavaScriptCallback) e -> examineUnlocks.setOpacity(SELECTED_OPACITY));
-            examineUnlocks.setOnMouseLeaveListener((JavaScriptCallback) e ->
-                    examineUnlocks.setOpacity(!selected.equals(examineName)
-                            ? position % 2 == 0 ? UNSELECTED_OPACITY_EVEN : UNSELECTED_OPACITY_ODD
-                            : SELECTED_OPACITY)
-            );
         }
-        examineUnlocks.setBorderType(template.getBorderType());
-        examineUnlocks.setItemId(template.getItemId());
-        examineUnlocks.setSpriteId(template.getSpriteId());
-        examineUnlocks.setOriginalHeight(template.getOriginalHeight());
-        examineUnlocks.setOriginalWidth((template.getOriginalWidth()));
-        examineUnlocks.setOriginalX(template.getOriginalX());
-        examineUnlocks.setOriginalY(template.getOriginalY() + template.getOriginalHeight());
-        examineUnlocks.setXPositionMode(template.getXPositionMode());
-        examineUnlocks.setYPositionMode(template.getYPositionMode());
-        examineUnlocks.setContentType(template.getContentType());
-        examineUnlocks.setItemQuantity(template.getItemQuantity());
-        examineUnlocks.setItemQuantityMode(template.getItemQuantityMode());
-        examineUnlocks.setModelId(template.getModelId());
-        examineUnlocks.setModelType(template.getModelType());
-        examineUnlocks.setBorderType(template.getBorderType());
-        examineUnlocks.setFilled(template.isFilled());
-        examineUnlocks.setTextColor(template.getTextColor());
-        examineUnlocks.setFontId(template.getFontId());
-        examineUnlocks.setTextShadowed(template.getTextShadowed());
-        examineUnlocks.setWidthMode(template.getWidthMode());
-        examineUnlocks.setYTextAlignment(template.getYTextAlignment());
-        examineUnlocks.revalidate();
-    }
-
-    private void makeExamineTextWidget(String examineName, Widget categories, Widget[] categoryElements) {
-        int position = categoryElements.length;
-        // Last entry as the template
-        Widget template = categoryElements[categoryElements.length - 1];
-        Widget examineUnlocks = categories.createChild(position, template.getType());
-        examineUnlocks.setText(examineName);
-        examineUnlocks.setTextColor(-0x67e1);
-        examineUnlocks.setBorderType(template.getBorderType());
-        examineUnlocks.setItemId(template.getItemId());
-        examineUnlocks.setSpriteId(template.getSpriteId());
-        examineUnlocks.setOriginalHeight(template.getOriginalHeight());
-        examineUnlocks.setOriginalWidth((template.getOriginalWidth()));
-        examineUnlocks.setOriginalX(template.getOriginalX());
-        examineUnlocks.setOriginalY(template.getOriginalY() + template.getOriginalHeight());
-        examineUnlocks.setXPositionMode(template.getXPositionMode());
-        examineUnlocks.setYPositionMode(template.getYPositionMode());
-        examineUnlocks.setContentType(template.getContentType());
-        examineUnlocks.setItemQuantity(template.getItemQuantity());
-        examineUnlocks.setItemQuantityMode(template.getItemQuantityMode());
-        examineUnlocks.setModelId(template.getModelId());
-        examineUnlocks.setModelType(template.getModelType());
-        examineUnlocks.setBorderType(template.getBorderType());
-        examineUnlocks.setFilled(template.isFilled());
-        examineUnlocks.setFontId(template.getFontId());
-        examineUnlocks.setTextShadowed(template.getTextShadowed());
-        examineUnlocks.setWidthMode(template.getWidthMode());
-        examineUnlocks.setYTextAlignment(template.getYTextAlignment());
-        examineUnlocks.revalidate();
-    }
-
-    private void unselectAll(boolean clearAll) {
-        List<String> examineCategories = List.of("Item Examines", "NPC Examines", "Object Examines");
-        Widget logCategoriesRect = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_CATEGORIES_RECTANGLE);
-        if (logCategoriesRect == null) {
-            return;
-        }
-        Widget[] categoryRectElements = logCategoriesRect.getDynamicChildren();
-        if (categoryRectElements.length == 0) {
-            return; // The category elements have not been loaded yet.
-        }
-
-        if (clearAll) {
-            selected = "";
-        }
-
-        for (int i = 0; i < categoryRectElements.length; i++) {
-            if (categoryRectElements[i].getOpacity() == SELECTED_OPACITY) {
-                String title = Text.removeTags(categoryRectElements[i].getName());
-                if (clearAll || examineCategories.contains(title)) {
-                    categoryRectElements[i].setOpacity(i % 2 == 0 ? UNSELECTED_OPACITY_EVEN : UNSELECTED_OPACITY_ODD);
-                }
+        // Checks if the open source was from somewhere unknown and resets log to not render
+        if (event.getScriptId() == 1902 && this.examineLogWidgetNode != null) {
+            if (this.openSkillGuideInterfaceSource.isEmpty()) {
+                this.examineLogWidgetNode = null;
+            } else {
+                this.openSkillGuideInterfaceSource = "";
             }
         }
     }
 
-    private Boolean openItemExamineCategory(Widget itemExamineWidget) {
-        String examineName = "Item Examines";
-        unselectAll(true);
-        itemExamineWidget.setOpacity(SELECTED_OPACITY);
-        selected = examineName;
-
-        clientThread.invokeLater(() -> {
-            Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
-            Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-            Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-            Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
-            if (collectionViewHeader == null || collectionView == null) {
+    @Subscribe
+    public void onScriptPostFired(ScriptPostFired event) {
+        if (config.enableCustomCollectionLog() && (event.getScriptId() == 1903 || event.getScriptId() == 1906) && this.examineLogWidgetNode != null) {
+            // render UI
+            /*
+             * TITLE
+             */
+            Widget skillGuideUIContainer = client.getWidget(SKILL_GUIDE_WIDGET, 3);
+            if (skillGuideUIContainer == null) {
                 return;
             }
-            if (combatAchievementsButton != null) {
-                combatAchievementsButton.setHidden(true);
-            }
+            Widget[] skillGuideUIParts = skillGuideUIContainer.getDynamicChildren();
+            int logCount = itemExamineLogs.size() + npcExamineLogs.size() + objectExamineLogs.size();
+            int maxLogCount = fullItemExamineLogs.size() + fullNpcExamineLogs.size() + fullObjectExamineLogs.size();
+            skillGuideUIParts[1].setText("Examine Log - " + logCount + "/" + maxLogCount);
 
-            Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
-            headerComponents[0].setText(examineName);
-            headerComponents[1].setText("Examines: <col=ffff00>" + itemExamineLogs.values().size() + "/???");
-            // Some collection logs have more than two titles this is just to clean up
-            for (int i = 2; i < headerComponents.length; i++) {
-                headerComponents[i].setText("");
-            }
-
-            collectionView.deleteAllChildren();
-            int index = 0;
-            int x = 0;
-            int y = 0;
-            int yIncrement = 40; // sprite height
-            int xIncrement = 42; // sprite width
-            for (BaseExamineLog itemExamineLog : itemExamineLogs.values()) {
-                addItemToCollectionLog(collectionView, itemExamineLog.getId(), itemExamineLog.getExamineText(), x, y, index);
-                x = x + xIncrement;
-                index++;
-                if (x > 210) {
-                    x = 0;
-                    y = y + yIncrement;
-                }
-            }
-            if (scrollbar != null) {
-                collectionView.setScrollHeight(y + 40 + 3); // 3 padding
-                int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-                collectionView.revalidateScroll();
-                client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-                collectionView.setScrollY(0);
-                scrollbar.setScrollY(0);
-            }
-        });
-
-        return true;
-
-    }
-
-    private Boolean openNPCExamineCategory(Widget npcExamineWidget) {
-        String examineName = "NPC Examines";
-        unselectAll(true);
-        npcExamineWidget.setOpacity(SELECTED_OPACITY);
-        selected = examineName;
-
-        clientThread.invokeLater(() -> {
-            Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
-            Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-            Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-            Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
-            if (collectionViewHeader == null || collectionView == null) {
+            /*
+             * TABS
+             */
+            Widget skillGuideTabsContainer = client.getWidget(SKILL_GUIDE_WIDGET, 7);
+            if (skillGuideTabsContainer == null) {
                 return;
             }
-            if (combatAchievementsButton != null) {
-                combatAchievementsButton.setHidden(true);
+            Widget[] skillGuideTabParts = skillGuideTabsContainer.getDynamicChildren();
+            if (skillGuideTabParts[0].getName().isEmpty()) {
+                this.selectedTab = "items";
+            } else {
+                skillGuideTabParts[0].setName("<col=ff9040>Items</col>");
             }
+            skillGuideTabParts[8].setText("Items");
 
-            Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
-            headerComponents[0].setText(examineName);
-            headerComponents[1].setText("Examines: <col=ffff00>" + npcExamineLogs.values().size() + "/???");
-            // Some collection logs have more than two titles this is just to clean up
-            for (int i = 2; i < headerComponents.length; i++) {
-                headerComponents[i].setText("");
+            if (skillGuideTabParts[9].getName().isEmpty()) {
+                this.selectedTab = "npcs";
+            } else {
+                skillGuideTabParts[9].setName("<col=ff9040>Npcs</col>");
             }
+            skillGuideTabParts[17].setText("Npcs");
 
-            collectionView.deleteAllChildren();
-
-            int index = 0;
-            int x = 0;
-            int y = 0;
-            int yIncrement = 40;
-            int xIncrement = 42;
-            for (String key : npcExamineLogs.keySet()) {
-                NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
-                String[] examineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
-                addEntryToCollectionLog(collectionView, ItemID.FAKE_MAN, key, examineTexts, x, y, index);
-                x = x + xIncrement;
-                index++;
-                if (x > 210) {
-                    x = 0;
-                    y = y + yIncrement;
-                }
+            if (skillGuideTabParts[18].getName().isEmpty()) {
+                this.selectedTab = "objects";
+            } else {
+                skillGuideTabParts[18].setName("<col=ff9040>Objects</col>");
             }
+            skillGuideTabParts[26].setText("Objects");
 
-            if (scrollbar != null) {
-                collectionView.setScrollHeight(y + 40 + 3); // 3 padding
-                int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-                collectionView.revalidateScroll();
-                client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-                collectionView.setScrollY(0);
-                scrollbar.setScrollY(0);
-            }
-        });
-
-        return true;
-    }
-
-    private Boolean openObjectExamineCategory(Widget objectExamineWidget) {
-        String examineName = "Object Examines";
-        unselectAll(true);
-        objectExamineWidget.setOpacity(SELECTED_OPACITY);
-        selected = examineName;
-
-        clientThread.invokeLater(() -> {
-            Widget collectionViewHeader = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_HEADER);
-            Widget combatAchievementsButton = client.getWidget(COLLECTION_LOG_GROUP_ID, COMBAT_ACHIEVEMENT_BUTTON);
-            Widget collectionView = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW);
-            Widget scrollbar = client.getWidget(COLLECTION_LOG_GROUP_ID, COLLECTION_VIEW_SCROLLBAR);
-            if (collectionViewHeader == null || collectionView == null) {
+            /*
+             * Entries
+             */
+            Widget rowEntriesContainer = client.getWidget(SKILL_GUIDE_WIDGET, 8);
+            if (rowEntriesContainer == null) {
                 return;
             }
-            if (combatAchievementsButton != null) {
-                combatAchievementsButton.setHidden(true);
-            }
-            Widget[] headerComponents = collectionViewHeader.getDynamicChildren();
-            headerComponents[0].setText(examineName);
-            headerComponents[1].setText("Examines: <col=ffff00>" + objectExamineLogs.values().size() + "/???");
-            // Some collection logs have more than two titles this is just to clean up
-            for (int i = 2; i < headerComponents.length; i++) {
-                headerComponents[i].setText("");
-            }
-
-            collectionView.deleteAllChildren();
-
-            int index = 0;
-            int x = 0;
+            rowEntriesContainer.deleteAllChildren();
             int y = 0;
-            int yIncrement = 40;
-            int xIncrement = 42;
-            for (String key : objectExamineLogs.keySet()) {
-                ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
-                String[] examineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
-                addEntryToCollectionLog(collectionView, ItemID.WOODEN_CHAIR, key, examineTexts, x, y, index);
-                x = x + xIncrement;
-                index++;
-                if (x > 210) {
-                    x = 0;
-                    y = y + yIncrement;
+            switch (selectedTab) {
+                case "items": {
+                    y = renderItemExamineLog(rowEntriesContainer);
+                    break;
+                }
+                case "npcs": {
+                    y = renderNPCExamineLog(rowEntriesContainer);
+                    break;
+                }
+                case "objects": {
+                    y = renderObjectExamineLog(rowEntriesContainer);
+                    break;
                 }
             }
-
-            if (scrollbar != null) {
-                collectionView.setScrollHeight(y + 40 + 3); // 3 padding
-                int scrollHeight = (collectionView.getScrollY() * y) / collectionView.getScrollHeight();
-                collectionView.revalidateScroll();
-                client.runScript(ScriptID.UPDATE_SCROLLBAR, scrollbar.getId(), collectionView.getId(), scrollHeight);
-                collectionView.setScrollY(0);
-                scrollbar.setScrollY(0);
-            }
-        });
-
-        return true;
-    }
-
-    private void addItemToCollectionLog(Widget collectionView, Integer itemId, String examineText, int x, int y, int index) {
-        String itemName = itemId == 799 ? "Bank note" : itemManager.getItemComposition(itemId).getName();
-        Widget newItem = collectionView.createChild(index, 5);
-        newItem.setContentType(0);
-        newItem.setItemId(itemId);
-        newItem.setItemQuantity(1);
-        newItem.setItemQuantityMode(0);
-        newItem.setModelId(-1);
-        newItem.setModelType(1);
-        newItem.setSpriteId(-1);
-        newItem.setBorderType(1);
-        newItem.setFilled(false);
-        newItem.setOriginalX(x);
-        newItem.setOriginalY(y);
-        newItem.setOriginalWidth(36);
-        newItem.setOriginalHeight(32);
-        newItem.setHasListener(true);
-        newItem.setAction(1, "Inspect");
-        newItem.setOnOpListener((JavaScriptCallback) e -> handleItemAction(itemName, examineText, e));
-        newItem.setName(itemName);
-        newItem.revalidate();
-    }
-
-    private void addEntryToCollectionLog(Widget collectionView, Integer itemID, String name, String[] examineTexts, int x, int y, int index) {
-        Widget newItem = collectionView.createChild(index, 5);
-        newItem.setContentType(0);
-        newItem.setItemId(itemID);
-        newItem.setItemQuantity(1);
-        newItem.setItemQuantityMode(0);
-        newItem.setModelId(-1);
-        newItem.setModelType(1);
-        newItem.setSpriteId(-1);
-        newItem.setBorderType(1);
-        newItem.setFilled(false);
-        newItem.setOriginalX(x);
-        newItem.setOriginalY(y);
-        newItem.setOriginalWidth(36);
-        newItem.setOriginalHeight(32);
-        newItem.setHasListener(true);
-        newItem.setAction(1, "Inspect");
-        newItem.setOnOpListener((JavaScriptCallback) e -> handleEntryAction(name, examineTexts, e));
-        newItem.setName(name);
-        newItem.revalidate();
-    }
-
-    private void handleItemAction(String name, String examineText, ScriptEvent event) {
-        if (event.getOp() == 2) {
-            final ChatMessageBuilder title = new ChatMessageBuilder()
-                    .append(ChatColorType.HIGHLIGHT)
-                    .append("Examine log")
-                    .append(ChatColorType.NORMAL)
-                    .append(" [")
-                    .append(new Color(0, 0, 255), name)
-                    .append("]: ");
-
-            chatMessageManager.queue(QueuedMessage.builder()
-                    .type(ChatMessageType.CONSOLE)
-                    .runeLiteFormattedMessage(title.build())
-                    .build());
-
-            final ChatMessageBuilder examination = new ChatMessageBuilder()
-                    .append(examineText);
-
-            chatMessageManager.queue(QueuedMessage.builder()
-                    .type(ChatMessageType.CONSOLE)
-                    .runeLiteFormattedMessage(examination.build())
-                    .build());
-        }
-    }
-
-    private void handleEntryAction(String name, String[] examineTexts, ScriptEvent event) {
-        if (event.getOp() == 2) {
-            int i = 1;
-            final ChatMessageBuilder title = new ChatMessageBuilder()
-                    .append(ChatColorType.HIGHLIGHT)
-                    .append("Examine log")
-                    .append(ChatColorType.NORMAL)
-                    .append(" [")
-                    .append(new Color(0, 0, 255), name)
-                    .append("]: ");
-
-            chatMessageManager.queue(QueuedMessage.builder()
-                    .type(ChatMessageType.CONSOLE)
-                    .runeLiteFormattedMessage(title.build())
-                    .build());
-
-            for (String examineText : examineTexts) {
-                final ChatMessageBuilder examination = new ChatMessageBuilder()
-                        .append(ChatColorType.HIGHLIGHT)
-                        .append(i++ + ". ")
-                        .append(ChatColorType.NORMAL)
-                        .append(examineText);
-
-                chatMessageManager.queue(QueuedMessage.builder()
-                        .type(ChatMessageType.CONSOLE)
-                        .runeLiteFormattedMessage(examination.build())
-                        .build());
+            /*
+             * Scroll Bar
+             */
+            Widget entriesScrollBar = client.getWidget(SKILL_GUIDE_WIDGET, 10);
+            if (entriesScrollBar != null) {
+                rowEntriesContainer.setScrollHeight(y);
+                int scrollHeight = (rowEntriesContainer.getScrollY() * y) / rowEntriesContainer.getScrollHeight();
+                rowEntriesContainer.revalidateScroll();
+                clientThread.invokeLater(() -> client.runScript(ScriptID.UPDATE_SCROLLBAR, entriesScrollBar.getId(), rowEntriesContainer.getId(), scrollHeight));
+                rowEntriesContainer.setScrollY(0);
+                entriesScrollBar.setScrollY(0);
             }
         }
     }
 
+    private int renderItemExamineLog(Widget rowEntriesContainer) {
+        int index = 0;
+        int y = 0;
 
+        for (String key : itemExamineLogs.keySet()) {
+            BaseExamineLog itemExamineLog = itemExamineLogs.get(key);
+            String[] unlockedExamineTexts = {itemExamineLog.getExamineText()};
+            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, new ArrayList<>(), index, y, itemExamineLog.getId());
+            index++;
+            y += rowHeight;
+        }
+        return y;
+    }
+
+    private int renderNPCExamineLog(Widget rowEntriesContainer) {
+        int index = 0;
+        int y = 0;
+
+        for (String key : npcExamineLogs.keySet()) {
+            NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
+            Set<String> examinesUnlocked = npcExamineLog.examineLogs.keySet();
+            String[] unlockedExamineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
+            List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key).stream().filter((examine) -> !examinesUnlocked.contains(examine)).collect(Collectors.toList());
+            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, fullLockedExamineTexts, index, y, -1);
+            index++;
+            y += rowHeight;
+        }
+        return y;
+    }
+
+    private int renderObjectExamineLog(Widget rowEntriesContainer) {
+        int index = 0;
+        int y = 0;
+
+        for (String key : objectExamineLogs.keySet()) {
+            ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
+            Set<String> examinesUnlocked = objectExamineLog.examineLogs.keySet();
+            String[] unlockedExamineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
+            List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key).stream().filter((examine) -> !examinesUnlocked.contains(examine)).collect(Collectors.toList());
+            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, fullLockedExamineTexts, index, y, -1);
+            index++;
+            y += rowHeight;
+        }
+        return y;
+    }
+
+    private int renderExamineLogRow(Widget rowEntriesContainer, String key, String[] unlockedExamineTexts, List<String> fullLockedExamineTexts, int index, int y, int itemId) {
+        final int PADDING = 12;
+        final int LINE_HEIGHT = 12;
+        final int NAME_WIDTH = 130;
+        final int ITEM_SIZE = PADDING + LINE_HEIGHT + PADDING;
+
+        int MAX_HINTS = config.hintCount();
+        // limit rendering to only 20 as get index out of bounds with > 100 (will need to address later)
+        String[] lockedExamineTexts = fullLockedExamineTexts.stream().limit(MAX_HINTS).toArray(String[]::new);
+
+        List<String> nameLines = wordWrap(key);
+        boolean hasMore = fullLockedExamineTexts.size() > MAX_HINTS;
+        boolean hasItem = itemId > -1;
+        boolean hasCompleted = fullLockedExamineTexts.isEmpty();
+        int maxLines = Math.max(unlockedExamineTexts.length + lockedExamineTexts.length + (hasMore ? 1 : 0), nameLines.size());
+        int boxHeight = PADDING + maxLines * LINE_HEIGHT + PADDING;
+        int unlockedHeight = unlockedExamineTexts.length * LINE_HEIGHT;
+        int lockedHeight = lockedExamineTexts.length * LINE_HEIGHT;
+
+        Widget examineLogRowBox = rowEntriesContainer.createChild(-1, WidgetType.RECTANGLE);
+        examineLogRowBox.setFilled(true);
+        examineLogRowBox.setOpacity(index % 2 == 0 ? ODD_OPACITY : EVEN_OPACITY);
+        examineLogRowBox.setBorderType(0);
+        examineLogRowBox.setWidthMode(1);
+        examineLogRowBox.setOriginalHeight(boxHeight);
+        examineLogRowBox.setOriginalY(y);
+        examineLogRowBox.revalidate();
+
+        Widget examineLogRowName = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+        examineLogRowName.setText(String.join("<br>", nameLines));
+        examineLogRowName.setTextColor(Integer.parseInt("ff981f", 16));
+        examineLogRowName.setTextShadowed(true);
+        examineLogRowName.setFontId(495);
+        examineLogRowName.setOriginalWidth(NAME_WIDTH - PADDING);
+        examineLogRowName.setOriginalX(PADDING);
+        examineLogRowName.setOriginalHeight(boxHeight - PADDING - PADDING);
+        examineLogRowName.setOriginalY(y + PADDING);
+        examineLogRowName.revalidate();
+
+        if (hasItem) {
+            Widget examineLogRowItem = rowEntriesContainer.createChild(-1, WidgetType.GRAPHIC);
+            examineLogRowItem.setItemId(itemId);
+            examineLogRowItem.setItemQuantity(-1);
+            examineLogRowItem.setOriginalX(NAME_WIDTH);
+            examineLogRowItem.setOriginalWidth(ITEM_SIZE);
+            examineLogRowItem.setOriginalHeight(ITEM_SIZE - 2);
+            examineLogRowItem.setOriginalY((y + 3) + (maxLines - 1) * (LINE_HEIGHT / 2)); // to center the item
+            examineLogRowItem.revalidate();
+        }
+
+        int examineTextX = NAME_WIDTH + (hasItem ? ITEM_SIZE : 0);
+        Widget examineLogRowUnlocked = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+        examineLogRowUnlocked.setText(examineLogsColor("- " + String.join("<br>- ", unlockedExamineTexts), hasCompleted));
+        examineLogRowUnlocked.setTextColor(Integer.parseInt("ff981f", 16));
+        examineLogRowUnlocked.setTextShadowed(true);
+        examineLogRowUnlocked.setFontId(495);
+        examineLogRowUnlocked.setOriginalWidth(examineTextX);
+        examineLogRowUnlocked.setWidthMode(1);
+        examineLogRowUnlocked.setOriginalX(examineTextX);
+        examineLogRowUnlocked.setOriginalHeight(unlockedHeight);
+        examineLogRowUnlocked.setOriginalY(y + PADDING);
+        examineLogRowUnlocked.revalidate();
+
+        Widget examineLogRowLocked = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+        examineLogRowLocked.setText(String.join("<br>",
+                Arrays.stream(lockedExamineTexts)
+                        .map((s) -> "- " + s.replaceAll("[^ ]", "."))
+                        .toArray(String[]::new))
+        );
+        examineLogRowLocked.setTextColor(Integer.parseInt("9f9f9f", 16));
+        examineLogRowLocked.setTextShadowed(true);
+        examineLogRowLocked.setFontId(495);
+        examineLogRowLocked.setOriginalWidth(examineTextX);
+        examineLogRowLocked.setWidthMode(1);
+        examineLogRowLocked.setOriginalX(examineTextX);
+        examineLogRowLocked.setOriginalHeight(lockedHeight);
+        examineLogRowLocked.setOriginalY(y + PADDING + unlockedHeight);
+        examineLogRowLocked.revalidate();
+
+        if (hasMore) {
+            Widget examineLogRowMore = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+            examineLogRowMore.setText(String.format("... and %d more still to find", fullLockedExamineTexts.size() - lockedExamineTexts.length));
+            examineLogRowMore.setTextColor(Integer.parseInt("9f9f9f", 16));
+            examineLogRowMore.setTextShadowed(true);
+            examineLogRowMore.setFontId(495);
+            examineLogRowMore.setOriginalWidth(examineTextX);
+            examineLogRowMore.setWidthMode(1);
+            examineLogRowMore.setOriginalX(examineTextX);
+            examineLogRowMore.setOriginalHeight(LINE_HEIGHT);
+            examineLogRowMore.setOriginalY(y + PADDING + unlockedHeight + lockedHeight);
+            examineLogRowMore.revalidate();
+        }
+
+        return boxHeight;
+    }
+
+    String examineLogsColor(String examineLogs, boolean hasCompleted) {
+        return hasCompleted ? "<col=dc10d>" + examineLogs + "</col>" : examineLogs;
+    }
+
+    List<String> wordWrap(String string) {
+        // might not need this as text might auto wrap
+        final int WRAP_WIDTH = 20; // it's about 1/5th of width
+        List<String> matchList = new ArrayList<>();
+        String regexString = "(.{1," + WRAP_WIDTH + "}(?:\\s|$))|(.{0," + WRAP_WIDTH + "})";
+        Pattern regex = Pattern.compile(regexString, Pattern.DOTALL);
+        Matcher regexMatcher = regex.matcher(string);
+        while (regexMatcher.find()) {
+            matchList.add(regexMatcher.group());
+        }
+        return matchList.stream().filter(s -> !s.isEmpty()).collect(Collectors.toList());
+    }
 }
