@@ -1,5 +1,6 @@
 package com.dexamine;
 
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
@@ -19,6 +20,7 @@ import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
 
 import static net.runelite.client.RuneLite.RUNELITE_DIR;
@@ -34,14 +36,12 @@ import java.text.SimpleDateFormat;
 import java.util.Deque;
 import java.util.*;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 
 @Slf4j
 @PluginDescriptor(
-        name = "Examine Log (Dexamine)"
+        name = "Examine Log"
 )
 public class DexaminePlugin extends Plugin {
     private static final String ITEM_LOGS = "item-logs";
@@ -49,8 +49,7 @@ public class DexaminePlugin extends Plugin {
     private static final String OBJECT_LOGS = "object-logs";
     final int COLLECTION_LOG_POPUP_WIDGET = 660;
     final int SKILL_GUIDE_WIDGET = 860;
-    final int ODD_OPACITY = 200;
-    final int EVEN_OPACITY = 220;
+    final int BANK_NOTE_ITEM_ID = 799;
     private final Deque<PendingExamine> pending = new ArrayDeque<>();
     private final File EXAMINE_LOG_DIR = new File(RUNELITE_DIR, "examine-log");
     @Inject
@@ -245,7 +244,7 @@ public class DexaminePlugin extends Plugin {
                 name = itemComposition.getName();
                 // treat all banknotes as the same item
                 if (itemComposition.getNote() != -1) {
-                    id = 799;
+                    id = BANK_NOTE_ITEM_ID;
                     name = "Bank note";
                 }
                 break;
@@ -262,7 +261,7 @@ public class DexaminePlugin extends Plugin {
                 name = itemComposition.getName();
                 // treat all banknotes as the same item
                 if (itemComposition.getNote() != -1) {
-                    id = 799;
+                    id = BANK_NOTE_ITEM_ID;
                     name = "Bank note";
                 }
                 break;
@@ -279,7 +278,9 @@ public class DexaminePlugin extends Plugin {
             }
             case EXAMINE_OBJECT: {
                 type = ChatMessageType.OBJECT_EXAMINE;
-                TileObject object = findTileObject(client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier());
+                TileObject object = findTileObject(
+                    client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier()
+                );
                 if (object == null) {
                     return;
                 }
@@ -337,7 +338,12 @@ public class DexaminePlugin extends Plugin {
 
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
         WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
-        BaseExamineLog examineLog = new BaseExamineLog(pendingExamine.getId(), pendingExamine.getExamineText(), timestamp, playerPos);
+        BaseExamineLog examineLog = new BaseExamineLog(
+            pendingExamine.getId(),
+            pendingExamine.getExamineText(),
+            timestamp,
+            playerPos
+        );
 
         if (event.getType() == ChatMessageType.ITEM_EXAMINE) {
             if (itemExamineLogs.containsKey(pendingExamine.getName())) {
@@ -395,9 +401,10 @@ public class DexaminePlugin extends Plugin {
 
     @Subscribe
     public void onMenuEntryAdded(MenuEntryAdded event) {
-        if (config.enableCustomCollectionLog() && event.getMenuEntry().getWidget() != null
-                && event.getMenuEntry().getWidget().getParentId() == ComponentID.CHARACTER_SUMMARY_CONTAINER + 1
-                && Objects.equals(event.getMenuEntry().getOption(), "Collection Log")
+        if (config.enableCustomCollectionLog()
+            && event.getMenuEntry().getWidget() != null
+            && event.getMenuEntry().getWidget().getParentId() == ComponentID.CHARACTER_SUMMARY_CONTAINER + 1
+            && Objects.equals(event.getMenuEntry().getOption(), "Collection Log")
         ) {
             client.createMenuEntry(-1)
                     .setOption("Examine Log")
@@ -407,11 +414,19 @@ public class DexaminePlugin extends Plugin {
                     .onClick(this::openExamineLog);
         }
 
-        if (config.enableMenuHints() && event.getMenuEntry() != null && event.getMenuEntry().getOption().equals("Examine")) {
+        if (config.enableMenuHints()
+            && event.getMenuEntry() != null
+            && event.getMenuEntry().getOption().equals("Examine")
+        ) {
             MenuEntry entry = event.getMenuEntry();
             switch (entry.getType()) {
                 case EXAMINE_ITEM_GROUND: {
-                    if (itemExamineLogs.get(Text.removeTags(event.getTarget())) != null) {
+                    final ItemComposition itemComposition = itemManager.getItemComposition(event.getIdentifier());
+                    if (itemComposition.getNote() != -1) {
+                        if (itemExamineLogs.get("Bank note") != null) {
+                            return;
+                        }
+                    } else if (itemExamineLogs.get(itemComposition.getName()) != null) {
                         return;
                     }
                     break;
@@ -422,7 +437,11 @@ public class DexaminePlugin extends Plugin {
                         return;
                     }
                     final ItemComposition itemComposition = itemManager.getItemComposition(event.getItemId());
-                    if (itemExamineLogs.get(itemComposition.getName()) != null) {
+                    if (itemComposition.getNote() != -1) {
+                        if (itemExamineLogs.get("Bank note") != null) {
+                            return;
+                        }
+                    } else if (itemExamineLogs.get(itemComposition.getName()) != null) {
                         return;
                     }
                     break;
@@ -435,7 +454,12 @@ public class DexaminePlugin extends Plugin {
                     break;
                 }
                 case EXAMINE_OBJECT: {
-                    TileObject object = findTileObject(client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier());
+                    TileObject object = findTileObject(
+                        client.getPlane(),
+                        entry.getParam0(),
+                        entry.getParam1(),
+                        entry.getIdentifier()
+                    );
                     if (object == null) {
                         return;
                     }
@@ -452,8 +476,12 @@ public class DexaminePlugin extends Plugin {
 
     private void openExamineLog(MenuEntry menuEntry) {
         clientThread.invokeLater(() -> {
+            // Handles both resizable and fixed modes
             int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 18 : 42);
-            this.examineLogWidgetNode = client.openInterface(componentId, SKILL_GUIDE_WIDGET, WidgetModalMode.MODAL_NOCLICKTHROUGH);
+            this.examineLogWidgetNode = client.openInterface(
+                componentId, SKILL_GUIDE_WIDGET,
+                WidgetModalMode.MODAL_NOCLICKTHROUGH
+            );
             this.openSkillGuideInterfaceSource = "characterSummary";
             this.selectedTab = "items";
             client.runScript(1902, 1, 0);
@@ -465,13 +493,20 @@ public class DexaminePlugin extends Plugin {
             return;
         }
         clientThread.invokeLater(() -> {
-            // Handles both resizable and fixed modes now.
+            // Handles both resizable and fixed modes
             int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 13 : 43);
-            WidgetNode widgetNode = client.openInterface(componentId, COLLECTION_LOG_POPUP_WIDGET, WidgetModalMode.MODAL_CLICKTHROUGH);
-            client.runScript(3343,
-                    "Examine Log", String.format("New %s examine:<br><br><col=ffffff>%s</col>",
-                            chatTypeToType(pendingExamine.getType()), pendingExamine.getExamineText()),
-                    -1);
+            WidgetNode widgetNode = client.openInterface(
+                componentId,
+                COLLECTION_LOG_POPUP_WIDGET,
+                WidgetModalMode.MODAL_CLICKTHROUGH
+            );
+            String title = "Examine Log";
+            String description = String.format(
+                "New %s examine:<br><br><col=ffffff>%s</col>",
+                chatTypeToType(pendingExamine.getType()),
+                pendingExamine.getExamineText()
+            );
+            client.runScript(3343, title, description, -1);
 
             clientThread.invokeLater(() -> {
                 Widget w = client.getWidget(COLLECTION_LOG_POPUP_WIDGET, 1);
@@ -573,7 +608,10 @@ public class DexaminePlugin extends Plugin {
 
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
-        if (config.enableCustomCollectionLog() && (event.getScriptId() == 1903 || event.getScriptId() == 1906) && this.examineLogWidgetNode != null) {
+        if (config.enableCustomCollectionLog()
+            && (event.getScriptId() == 1903 || event.getScriptId() == 1906)
+            && this.examineLogWidgetNode != null
+        ) {
             // render UI
             /*
              * TITLE
@@ -647,7 +685,14 @@ public class DexaminePlugin extends Plugin {
                 rowEntriesContainer.setScrollHeight(y);
                 int scrollHeight = (rowEntriesContainer.getScrollY() * y) / rowEntriesContainer.getScrollHeight();
                 rowEntriesContainer.revalidateScroll();
-                clientThread.invokeLater(() -> client.runScript(ScriptID.UPDATE_SCROLLBAR, entriesScrollBar.getId(), rowEntriesContainer.getId(), scrollHeight));
+                clientThread.invokeLater(() ->
+                     client.runScript(
+                         ScriptID.UPDATE_SCROLLBAR,
+                         entriesScrollBar.getId(),
+                         rowEntriesContainer.getId(),
+                         scrollHeight
+                    )
+                );
                 rowEntriesContainer.setScrollY(0);
                 entriesScrollBar.setScrollY(0);
             }
@@ -661,9 +706,39 @@ public class DexaminePlugin extends Plugin {
         for (String key : itemExamineLogs.keySet()) {
             BaseExamineLog itemExamineLog = itemExamineLogs.get(key);
             String[] unlockedExamineTexts = {itemExamineLog.getExamineText()};
-            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, new ArrayList<>(), index, y, itemExamineLog.getId());
+            String name = itemExamineLog.getId() == BANK_NOTE_ITEM_ID
+                    ? "Bank note"
+                    : key;
+            int rowHeight = renderExamineLogRow(
+                rowEntriesContainer,
+                name,
+                unlockedExamineTexts,
+                new ArrayList<>(),
+                index,
+                y,
+                itemExamineLog.getId()
+            );
             index++;
             y += rowHeight;
+        }
+        if (config.showAllHiddenLogs()) {
+            for (String key : fullItemExamineLogs.keySet()) {
+                // filter out logs you have first
+                if (itemExamineLogs.get(key) != null) {
+                    continue;
+                }
+                int rowHeight = renderExamineLogRow(
+                    rowEntriesContainer,
+                    key,
+                    new ArrayList<String>().toArray(String[]::new),
+                    Collections.singletonList(fullItemExamineLogs.get(key)),
+                    index,
+                    y,
+                    -1
+                );
+                index++;
+                y += rowHeight;
+            }
         }
         return y;
     }
@@ -676,10 +751,40 @@ public class DexaminePlugin extends Plugin {
             NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
             Set<String> examinesUnlocked = npcExamineLog.examineLogs.keySet();
             String[] unlockedExamineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
-            List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key).stream().filter((examine) -> !examinesUnlocked.contains(examine)).collect(Collectors.toList());
-            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, fullLockedExamineTexts, index, y, -1);
+            List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key)
+                .stream()
+                .filter((examine) -> !examinesUnlocked.contains(examine))
+                .collect(Collectors.toList());
+            int rowHeight = renderExamineLogRow(
+                rowEntriesContainer,
+                key,
+                unlockedExamineTexts,
+                fullLockedExamineTexts,
+                index,
+                y,
+                -1
+            );
             index++;
             y += rowHeight;
+        }
+        if (config.showAllHiddenLogs()) {
+            for (String key : fullNpcExamineLogs.keySet()) {
+                // filter out logs you have first
+                if (npcExamineLogs.get(key) != null) {
+                    continue;
+                }
+                int rowHeight = renderExamineLogRow(
+                    rowEntriesContainer,
+                    key,
+                    new ArrayList<String>().toArray(String[]::new),
+                    new ArrayList<>(fullNpcExamineLogs.get(key)),
+                    index,
+                    y,
+                    -1
+                );
+                index++;
+                y += rowHeight;
+            }
         }
         return y;
     }
@@ -692,53 +797,142 @@ public class DexaminePlugin extends Plugin {
             ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
             Set<String> examinesUnlocked = objectExamineLog.examineLogs.keySet();
             String[] unlockedExamineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
-            List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key).stream().filter((examine) -> !examinesUnlocked.contains(examine)).collect(Collectors.toList());
-            int rowHeight = renderExamineLogRow(rowEntriesContainer, key, unlockedExamineTexts, fullLockedExamineTexts, index, y, -1);
+            List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key)
+                .stream()
+                .filter((examine) -> !examinesUnlocked.contains(examine))
+                .collect(Collectors.toList());
+            int rowHeight = renderExamineLogRow(
+                rowEntriesContainer,
+                key,
+                unlockedExamineTexts,
+                fullLockedExamineTexts,
+                index,
+                y,
+                -1
+            );
             index++;
             y += rowHeight;
+        }
+        if (config.showAllHiddenLogs()) {
+            for (String key : fullObjectExamineLogs.keySet()) {
+                // filter out logs you have first
+                if (objectExamineLogs.get(key) != null) {
+                    continue;
+                }
+                int rowHeight = renderExamineLogRow(
+                    rowEntriesContainer,
+                    key,
+                    new ArrayList<String>().toArray(String[]::new),
+                    new ArrayList<>(fullObjectExamineLogs.get(key)),
+                    index,
+                    y,
+                    -1
+                );
+                index++;
+                y += rowHeight;
+            }
         }
         return y;
     }
 
-    private int renderExamineLogRow(Widget rowEntriesContainer, String key, String[] unlockedExamineTexts, List<String> fullLockedExamineTexts, int index, int y, int itemId) {
+    private int renderExamineLogRow(
+        Widget rowEntriesContainer, String key, String[] unlockedExamineTexts,
+        List<String> fullLockedExamineTexts, int index, int y, int itemId
+    ) {
+        final int ODD_OPACITY = 200;
+        final int EVEN_OPACITY = 220;
         final int PADDING = 12;
         final int LINE_HEIGHT = 12;
         final int NAME_WIDTH = 130;
         final int ITEM_SIZE = PADDING + LINE_HEIGHT + PADDING;
+        // Limit rendering to only 20 as get index out of bounds with > 100 log entries
+        final int CHUNK_SIZE = 20;
 
         int MAX_HINTS = config.hintCount();
-        // limit rendering to only 20 as get index out of bounds with > 100 (will need to address later)
         String[] lockedExamineTexts = fullLockedExamineTexts.stream().limit(MAX_HINTS).toArray(String[]::new);
-
-        List<String> nameLines = wordWrap(key);
-        boolean hasMore = fullLockedExamineTexts.size() > MAX_HINTS;
         boolean hasItem = itemId > -1;
         boolean hasCompleted = fullLockedExamineTexts.isEmpty();
-        int maxLines = Math.max(unlockedExamineTexts.length + lockedExamineTexts.length + (hasMore ? 1 : 0), nameLines.size());
-        int boxHeight = PADDING + maxLines * LINE_HEIGHT + PADDING;
-        int unlockedHeight = unlockedExamineTexts.length * LINE_HEIGHT;
-        int lockedHeight = lockedExamineTexts.length * LINE_HEIGHT;
 
+        // Background Box widget
         Widget examineLogRowBox = rowEntriesContainer.createChild(-1, WidgetType.RECTANGLE);
         examineLogRowBox.setFilled(true);
         examineLogRowBox.setOpacity(index % 2 == 0 ? ODD_OPACITY : EVEN_OPACITY);
         examineLogRowBox.setBorderType(0);
         examineLogRowBox.setWidthMode(1);
-        examineLogRowBox.setOriginalHeight(boxHeight);
         examineLogRowBox.setOriginalY(y);
         examineLogRowBox.revalidate();
 
+        // Name for the examine log row
         Widget examineLogRowName = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
-        examineLogRowName.setText(String.join("<br>", nameLines));
         examineLogRowName.setTextColor(Integer.parseInt("ff981f", 16));
+        examineLogRowName.setLineHeight(LINE_HEIGHT);
         examineLogRowName.setTextShadowed(true);
-        examineLogRowName.setFontId(495);
+        examineLogRowName.setFontId(FontID.PLAIN_12);
         examineLogRowName.setOriginalWidth(NAME_WIDTH - PADDING);
         examineLogRowName.setOriginalX(PADDING);
-        examineLogRowName.setOriginalHeight(boxHeight - PADDING - PADDING);
         examineLogRowName.setOriginalY(y + PADDING);
         examineLogRowName.revalidate();
 
+        // Examine text entries for the row
+        int examineTextX = NAME_WIDTH + (hasItem ? ITEM_SIZE : 0);
+        int textColor = hasCompleted ? Integer.parseInt("dc10d", 16) : Integer.parseInt("ff981f", 16);
+        Widget examineLogRowText = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+        examineLogRowText.setTextColor(textColor);
+        examineLogRowText.setLineHeight(LINE_HEIGHT);
+        examineLogRowText.setTextShadowed(true);
+        examineLogRowText.setFontId(FontID.PLAIN_12);
+        examineLogRowText.setOriginalWidth(examineTextX);
+        examineLogRowText.setWidthMode(1);
+        examineLogRowText.setOriginalX(examineTextX);
+        examineLogRowText.setOriginalY(y + PADDING);
+        examineLogRowText.revalidate();
+
+        // Word wrapping without being able to get the text box height this is works well
+        List<String> examineLogText = buildExamineLogTextLines(
+            examineLogRowText,
+            unlockedExamineTexts,
+            lockedExamineTexts,
+            fullLockedExamineTexts.size()
+        );
+        List<String> nameLines = buildExamineLogName(examineLogRowName, key);
+
+        int maxLines = Math.max(examineLogText.size(), nameLines.size());
+        int boxHeight = PADDING + maxLines * LINE_HEIGHT + PADDING;
+
+        // Recalculating height once the line count is known
+        // Background Box
+        examineLogRowBox.setOriginalHeight(boxHeight);
+        examineLogRowBox.revalidate();
+        // Name
+        examineLogRowName.setOriginalHeight(nameLines.size() * LINE_HEIGHT);
+        examineLogRowName.setText(String.join("<br>", nameLines));
+        examineLogRowName.revalidate();
+        // Examine texts
+        List<List<String>> examineLogTextChunks = Lists.partition(examineLogText, CHUNK_SIZE);
+
+        examineLogRowText.setOriginalHeight(examineLogTextChunks.get(0).size() * LINE_HEIGHT);
+        examineLogRowText.setText(String.join("<br>", examineLogTextChunks.get(0)));
+        examineLogRowText.revalidate();
+
+        // Splits text boxes into chunks to avoid reaching capacity for the text font face
+        for (int chunk = 1; chunk < examineLogTextChunks.size(); chunk++) {
+            List<String> textChunk = examineLogTextChunks.get(chunk);
+            examineLogRowText = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
+            examineLogRowText.setTextColor(textColor);
+            examineLogRowText.setLineHeight(LINE_HEIGHT);
+            examineLogRowText.setTextShadowed(true);
+            examineLogRowText.setFontId(FontID.PLAIN_12);
+            examineLogRowText.setOriginalWidth(examineTextX);
+            examineLogRowText.setWidthMode(1);
+            examineLogRowText.setOriginalX(examineTextX);
+            examineLogRowText.setOriginalY(y + PADDING + chunk * CHUNK_SIZE * LINE_HEIGHT);
+            examineLogRowText.setOriginalHeight(textChunk.size() * LINE_HEIGHT);
+            examineLogRowText.setText(String.join("<br>", textChunk));
+            examineLogRowText.revalidate();
+        }
+
+        // Rendering Item sprite for item logs
+        // todo - figure out a better way for npcs and objects
         if (hasItem) {
             Widget examineLogRowItem = rowEntriesContainer.createChild(-1, WidgetType.GRAPHIC);
             examineLogRowItem.setItemId(itemId);
@@ -746,70 +940,78 @@ public class DexaminePlugin extends Plugin {
             examineLogRowItem.setOriginalX(NAME_WIDTH);
             examineLogRowItem.setOriginalWidth(ITEM_SIZE);
             examineLogRowItem.setOriginalHeight(ITEM_SIZE - 2);
-            examineLogRowItem.setOriginalY((y + 3) + (maxLines - 1) * (LINE_HEIGHT / 2)); // to center the item
+            examineLogRowItem.setOriginalY((y + 3) + (maxLines - 1) * (LINE_HEIGHT / 2)); // to center the item sprite
             examineLogRowItem.revalidate();
-        }
-
-        int examineTextX = NAME_WIDTH + (hasItem ? ITEM_SIZE : 0);
-        Widget examineLogRowUnlocked = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
-        examineLogRowUnlocked.setText(examineLogsColor("- " + String.join("<br>- ", unlockedExamineTexts), hasCompleted));
-        examineLogRowUnlocked.setTextColor(Integer.parseInt("ff981f", 16));
-        examineLogRowUnlocked.setTextShadowed(true);
-        examineLogRowUnlocked.setFontId(495);
-        examineLogRowUnlocked.setOriginalWidth(examineTextX);
-        examineLogRowUnlocked.setWidthMode(1);
-        examineLogRowUnlocked.setOriginalX(examineTextX);
-        examineLogRowUnlocked.setOriginalHeight(unlockedHeight);
-        examineLogRowUnlocked.setOriginalY(y + PADDING);
-        examineLogRowUnlocked.revalidate();
-
-        Widget examineLogRowLocked = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
-        examineLogRowLocked.setText(String.join("<br>",
-                Arrays.stream(lockedExamineTexts)
-                        .map((s) -> "- " + s.replaceAll("[^ ]", "."))
-                        .toArray(String[]::new))
-        );
-        examineLogRowLocked.setTextColor(Integer.parseInt("9f9f9f", 16));
-        examineLogRowLocked.setTextShadowed(true);
-        examineLogRowLocked.setFontId(495);
-        examineLogRowLocked.setOriginalWidth(examineTextX);
-        examineLogRowLocked.setWidthMode(1);
-        examineLogRowLocked.setOriginalX(examineTextX);
-        examineLogRowLocked.setOriginalHeight(lockedHeight);
-        examineLogRowLocked.setOriginalY(y + PADDING + unlockedHeight);
-        examineLogRowLocked.revalidate();
-
-        if (hasMore) {
-            Widget examineLogRowMore = rowEntriesContainer.createChild(-1, WidgetType.TEXT);
-            examineLogRowMore.setText(String.format("... and %d more still to find", fullLockedExamineTexts.size() - lockedExamineTexts.length));
-            examineLogRowMore.setTextColor(Integer.parseInt("9f9f9f", 16));
-            examineLogRowMore.setTextShadowed(true);
-            examineLogRowMore.setFontId(495);
-            examineLogRowMore.setOriginalWidth(examineTextX);
-            examineLogRowMore.setWidthMode(1);
-            examineLogRowMore.setOriginalX(examineTextX);
-            examineLogRowMore.setOriginalHeight(LINE_HEIGHT);
-            examineLogRowMore.setOriginalY(y + PADDING + unlockedHeight + lockedHeight);
-            examineLogRowMore.revalidate();
         }
 
         return boxHeight;
     }
 
-    String examineLogsColor(String examineLogs, boolean hasCompleted) {
-        return hasCompleted ? "<col=dc10d>" + examineLogs + "</col>" : examineLogs;
+    List<String> buildExamineLogName(Widget examineLogName, String name) {
+        FontTypeFace font = examineLogName.getFont();
+        int width = examineLogName.getWidth();
+        List<String> lines = new ArrayList<>();
+        List<String> words = new LinkedList<>(Arrays.asList(name.trim().split("\\s+")));
+        StringBuilder line = new StringBuilder().append(words.remove(0));
+        for (String word : words) {
+            if (font.getTextWidth(line + " " + word) > width) {
+                lines.add(line.toString());
+                line = new StringBuilder(word);
+            }
+            line.append(" ").append(word);
+        }
+        lines.add(line.toString());
+
+        return lines;
     }
 
-    List<String> wordWrap(String string) {
-        // might not need this as text might auto wrap
-        final int WRAP_WIDTH = 20; // it's about 1/5th of width
-        List<String> matchList = new ArrayList<>();
-        String regexString = "(.{1," + WRAP_WIDTH + "}(?:\\s|$))|(.{0," + WRAP_WIDTH + "})";
-        Pattern regex = Pattern.compile(regexString, Pattern.DOTALL);
-        Matcher regexMatcher = regex.matcher(string);
-        while (regexMatcher.find()) {
-            matchList.add(regexMatcher.group());
+    List<String> buildExamineLogTextLines(
+        Widget examineLogTextBox, String[] unlockedExamineTexts,
+        String[] lockedHintExamineTexts, int lockedCount
+    ) {
+        FontTypeFace font = examineLogTextBox.getFont();
+        int width = examineLogTextBox.getWidth();
+        int remaining = lockedCount - lockedHintExamineTexts.length;
+
+        List<String> lines = new ArrayList<>();
+        for (String unlockedExamineText : unlockedExamineTexts) {
+            List<String> words = new LinkedList<>(Arrays.asList(unlockedExamineText.trim().split("\\s+")));
+            StringBuilder line = new StringBuilder("- ").append(words.remove(0));
+            for (String word : words) {
+                if (font.getTextWidth(line + " " + word) > width) {
+                    lines.add(line.toString());
+                    line = new StringBuilder(word);
+                }
+                line.append(" ").append(word);
+            }
+            lines.add(line.toString());
         }
-        return matchList.stream().filter(s -> !s.isEmpty()).collect(Collectors.toList());
+
+        for (String lockedHintExamineText : lockedHintExamineTexts) {
+            // Hide text
+            String examineText = config.enableHiddenHints()
+                    ? lockedHintExamineText.replaceAll("[^ ]", ".")
+                    : lockedHintExamineText;
+            List<String> words = new LinkedList<>(Arrays.asList(examineText.trim().split("\\s+")));
+            StringBuilder line = new StringBuilder(ColorUtil.prependColorTag("- ", ColorUtil.fromHex("9f9f9f")));
+
+            line.append(words.remove(0));
+            for (String word : words) {
+                if (font.getTextWidth(Text.removeTags(line.toString()) + " " + word) > width) {
+                    line.append(ColorUtil.CLOSING_COLOR_TAG);
+                    lines.add(line.toString());
+                    line = new StringBuilder(ColorUtil.prependColorTag(word, ColorUtil.fromHex("9f9f9f")));
+                }
+                line.append(" ").append(word);
+            }
+            line.append(ColorUtil.CLOSING_COLOR_TAG);
+            lines.add(line.toString());
+        }
+        if (remaining > 0) {
+            String moreExaminesText = String.format("... and %d more still to find", remaining);
+            lines.add(ColorUtil.wrapWithColorTag(moreExaminesText, ColorUtil.fromHex("9f9f9f")));
+        }
+
+        return lines;
     }
 }

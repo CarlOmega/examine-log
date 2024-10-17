@@ -5,11 +5,19 @@ import net.runelite.client.config.*;
 @ConfigGroup("dexamine")
 public interface DexamineConfig extends Config {
     @ConfigSection(
-            name = "Collection Log",
-            description = "Custom Collection log things.",
+            name = "Examine Log",
+            description = "Custom Examine log things.",
             position = 1
     )
     String logsSection = "logs";
+
+    @ConfigSection(
+            name = "Hints",
+            description = "Hint settings.",
+            position = 2,
+            closedByDefault = true
+    )
+    String hintsSection = "hints";
 
     @ConfigItem(
             keyName = "enableCollectionLogPopup",
@@ -35,22 +43,43 @@ public interface DexamineConfig extends Config {
             keyName = "enableMenuHints",
             name = "Examine Menu Option Hints",
             description = "Enable Showing '*' for unseen examines",
-            section = logsSection
+            section = hintsSection
     )
     default boolean enableMenuHints() {
         return true;
     }
 
-    @Range(
-            max = 20
+    @ConfigItem(
+            keyName = "enableHiddenHints",
+            name = "Hide Examine Log Text",
+            description = "Enable Showing '...' instead of text",
+            section = hintsSection
     )
+    default boolean enableHiddenHints() {
+        return true;
+    }
+
+//    @Range(
+//            max = 60
+//    )
     @ConfigItem(
             keyName = "hintCount",
             name = "Examine Log Hint Count",
-            description = "Shows ... to help finding new examine texts",
-            section = logsSection
+            description = "Shows hints to help find new examine logs",
+            section = hintsSection
     )
     default int hintCount() {
-        return 0;
+        return 3;
+    }
+
+    @ConfigItem(
+            keyName = "showAllHiddenLogs",
+            name = "Show Full List of Examine Logs",
+            description = "Shows every examine text to find.",
+            warning = "WARNING this may affect performance.",
+            section = hintsSection
+    )
+    default boolean showAllHiddenLogs() {
+        return false;
     }
 }
