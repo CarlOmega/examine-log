@@ -957,6 +957,7 @@ public class DexaminePlugin extends Plugin {
             if (font.getTextWidth(line + " " + word) > width) {
                 lines.add(line.toString());
                 line = new StringBuilder(word);
+                continue;
             }
             line.append(" ").append(word);
         }
@@ -981,6 +982,7 @@ public class DexaminePlugin extends Plugin {
                 if (font.getTextWidth(line + " " + word) > width) {
                     lines.add(line.toString());
                     line = new StringBuilder(word);
+                    continue;
                 }
                 line.append(" ").append(word);
             }
@@ -1001,6 +1003,7 @@ public class DexaminePlugin extends Plugin {
                     line.append(ColorUtil.CLOSING_COLOR_TAG);
                     lines.add(line.toString());
                     line = new StringBuilder(ColorUtil.prependColorTag(word, ColorUtil.fromHex("9f9f9f")));
+                    continue;
                 }
                 line.append(" ").append(word);
             }

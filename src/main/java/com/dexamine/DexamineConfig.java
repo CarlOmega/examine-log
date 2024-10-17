@@ -59,9 +59,6 @@ public interface DexamineConfig extends Config {
         return true;
     }
 
-//    @Range(
-//            max = 60
-//    )
     @ConfigItem(
             keyName = "hintCount",
             name = "Examine Log Hint Count",
