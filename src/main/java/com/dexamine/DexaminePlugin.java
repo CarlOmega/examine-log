@@ -751,10 +751,12 @@ public class DexaminePlugin extends Plugin {
             NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
             Set<String> examinesUnlocked = npcExamineLog.examineLogs.keySet();
             String[] unlockedExamineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
-            List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key)
-                .stream()
-                .filter((examine) -> !examinesUnlocked.contains(examine))
-                .collect(Collectors.toList());
+            List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key) != null
+                ? fullNpcExamineLogs.get(key)
+                    .stream()
+                    .filter((examine) -> !examinesUnlocked.contains(examine))
+                    .collect(Collectors.toList())
+                : new ArrayList<>();
             int rowHeight = renderExamineLogRow(
                 rowEntriesContainer,
                 key,
@@ -797,10 +799,12 @@ public class DexaminePlugin extends Plugin {
             ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
             Set<String> examinesUnlocked = objectExamineLog.examineLogs.keySet();
             String[] unlockedExamineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
-            List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key)
-                .stream()
-                .filter((examine) -> !examinesUnlocked.contains(examine))
-                .collect(Collectors.toList());
+            List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key) != null
+                ? fullObjectExamineLogs.get(key)
+                    .stream()
+                    .filter((examine) -> !examinesUnlocked.contains(examine))
+                    .collect(Collectors.toList())
+                : new ArrayList<>();
             int rowHeight = renderExamineLogRow(
                 rowEntriesContainer,
                 key,
