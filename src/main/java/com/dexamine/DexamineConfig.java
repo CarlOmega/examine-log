@@ -50,6 +50,16 @@ public interface DexamineConfig extends Config {
     }
 
     @ConfigItem(
+            keyName = "enableExamineHidden",
+            name = "Examine Menu Option Hidden",
+            description = "Enable hiding examine options once examines are found",
+            section = hintsSection
+    )
+    default boolean enableExamineHidden() {
+        return false;
+    }
+
+    @ConfigItem(
             keyName = "enableHiddenHints",
             name = "Hide Examine Log Text",
             description = "Enable Showing '...' instead of text",

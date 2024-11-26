@@ -402,9 +402,9 @@ public class DexaminePlugin extends Plugin {
     @Subscribe
     public void onMenuEntryAdded(MenuEntryAdded event) {
         if (config.enableCustomCollectionLog()
-            && event.getMenuEntry().getWidget() != null
-            && event.getMenuEntry().getWidget().getParentId() == ComponentID.CHARACTER_SUMMARY_CONTAINER + 1
-            && Objects.equals(event.getMenuEntry().getOption(), "Collection Log")
+                && event.getMenuEntry().getWidget() != null
+                && event.getMenuEntry().getWidget().getParentId() == ComponentID.CHARACTER_SUMMARY_CONTAINER + 1
+                && Objects.equals(event.getMenuEntry().getOption(), "Collection Log")
         ) {
             client.createMenuEntry(-1)
                     .setOption("Examine Log")
@@ -413,64 +413,72 @@ public class DexaminePlugin extends Plugin {
                     .setType(MenuAction.RUNELITE)
                     .onClick(this::openExamineLog);
         }
-
-        if (config.enableMenuHints()
-            && event.getMenuEntry() != null
-            && event.getMenuEntry().getOption().equals("Examine")
-        ) {
-            MenuEntry entry = event.getMenuEntry();
-            switch (entry.getType()) {
-                case EXAMINE_ITEM_GROUND: {
-                    final ItemComposition itemComposition = itemManager.getItemComposition(event.getIdentifier());
-                    if (itemComposition.getNote() != -1) {
-                        if (itemExamineLogs.get("Bank note") != null) {
+    }
+    @Subscribe
+    public void onMenuOpened(MenuOpened event) {
+        Menu menu = client.getMenu();
+        for (MenuEntry entry : menu.getMenuEntries()) {
+            if (entry.getOption().equals("Examine")) {
+                switch (entry.getType()) {
+                    case EXAMINE_ITEM_GROUND: {
+                        final ItemComposition itemComposition = itemManager.getItemComposition(entry.getIdentifier());
+                        if (itemComposition.getNote() != -1 ? itemExamineLogs.get("Bank note") != null : itemExamineLogs.get(itemComposition.getName()) != null) {
+                            if (config.enableExamineHidden()) {
+                                menu.removeMenuEntry(entry);
+                            }
                             return;
                         }
-                    } else if (itemExamineLogs.get(itemComposition.getName()) != null) {
-                        return;
+                        break;
                     }
-                    break;
-                }
-                case CC_OP_LOW_PRIORITY: {
-                    Widget widget = entry.getWidget();
-                    if (widget == null || widget.getParent().getId() != ComponentID.INVENTORY_CONTAINER) {
-                        return;
-                    }
-                    final ItemComposition itemComposition = itemManager.getItemComposition(event.getItemId());
-                    if (itemComposition.getNote() != -1) {
-                        if (itemExamineLogs.get("Bank note") != null) {
+                    case CC_OP_LOW_PRIORITY: {
+                        Widget widget = entry.getWidget();
+                        if (widget == null || widget.getParent().getId() != ComponentID.INVENTORY_CONTAINER) {
                             return;
                         }
-                    } else if (itemExamineLogs.get(itemComposition.getName()) != null) {
-                        return;
+                        final ItemComposition itemComposition = itemManager.getItemComposition(entry.getItemId());
+                        if (itemComposition.getNote() != -1 ? itemExamineLogs.get("Bank note") != null : itemExamineLogs.get(itemComposition.getName()) != null) {
+                            if (config.enableExamineHidden()) {
+                                menu.removeMenuEntry(entry);
+                            }
+                            return;
+                        }
+                        break;
                     }
-                    break;
+                    case EXAMINE_NPC: {
+                        NPC npc = entry.getNpc();
+                        if (npc == null || npcExamineLogs.get(npc.getName()) != null) {
+                            if (config.enableExamineHidden()) {
+                                menu.removeMenuEntry(entry);
+                            }
+                            return;
+                        }
+                        break;
+                    }
+                    case EXAMINE_OBJECT: {
+                        TileObject object = findTileObject(
+                                client.getPlane(),
+                                entry.getParam0(),
+                                entry.getParam1(),
+                                entry.getIdentifier()
+                        );
+                        if (object == null) {
+                            return;
+                        }
+                        ObjectComposition objectDefinition = getObjectComposition(object.getId());
+                        if (objectDefinition == null || objectExamineLogs.get(objectDefinition.getName()) != null) {
+                            if (config.enableExamineHidden()) {
+                                menu.removeMenuEntry(entry);
+                            }
+                            return;
+                        }
+                        break;
+                    }
                 }
-                case EXAMINE_NPC: {
-                    NPC npc = entry.getNpc();
-                    if (npc == null || npcExamineLogs.get(npc.getName()) != null) {
-                        return;
-                    }
-                    break;
-                }
-                case EXAMINE_OBJECT: {
-                    TileObject object = findTileObject(
-                        client.getPlane(),
-                        entry.getParam0(),
-                        entry.getParam1(),
-                        entry.getIdentifier()
-                    );
-                    if (object == null) {
-                        return;
-                    }
-                    ObjectComposition objectDefinition = getObjectComposition(object.getId());
-                    if (objectDefinition == null || objectExamineLogs.get(objectDefinition.getName()) != null) {
-                        return;
-                    }
-                    break;
+                if (config.enableMenuHints()) {
+                    String target = entry.getTarget();
+                    entry.setTarget(target + "*");
                 }
             }
-            entry.setOption("Examine*");
         }
     }
 
