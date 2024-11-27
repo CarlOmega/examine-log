@@ -44,9 +44,7 @@ import java.util.stream.Collectors;
         name = "Examine Log"
 )
 public class DexaminePlugin extends Plugin {
-    private static final String ITEM_LOGS = "item-logs";
-    private static final String NPC_LOGS = "npc-logs";
-    private static final String OBJECT_LOGS = "object-logs";
+    private static final String EXAMINE_LOGS = "logs";
     final int COLLECTION_LOG_POPUP_WIDGET = 660;
     final int SKILL_GUIDE_WIDGET = 860;
     final int BANK_NOTE_ITEM_ID = 799;
@@ -67,9 +65,7 @@ public class DexaminePlugin extends Plugin {
     @Inject
     private Gson gson;
     private File playerFolder = null;
-    private Map<String, BaseExamineLog> itemExamineLogs = new HashMap<>();
-    private Map<String, NPCExamineLog> npcExamineLogs = new HashMap<>();
-    private Map<String, ObjectExamineLog> objectExamineLogs = new HashMap<>();
+    private ExamineLogs examineLogs = new ExamineLogs();
     private Map<String, String> fullItemExamineLogs = new HashMap<>();
     private Map<String, List<String>> fullNpcExamineLogs = new HashMap<>();
     private Map<String, List<String>> fullObjectExamineLogs = new HashMap<>();
@@ -93,9 +89,7 @@ public class DexaminePlugin extends Plugin {
             case LOGIN_SCREEN:
             case HOPPING: {
                 playerFolder = null;
-                itemExamineLogs = new HashMap<>();
-                npcExamineLogs = new HashMap<>();
-                objectExamineLogs = new HashMap<>();
+                examineLogs = new ExamineLogs();
             }
         }
     }
@@ -142,38 +136,108 @@ public class DexaminePlugin extends Plugin {
         this.playerFolder = getPlayerFolder(profileKey);
         log.debug("Loading logs for profile: {}", this.playerFolder.getName());
 
-        final Path itemLogsPath = getLogFilePath(ITEM_LOGS);
+        final Path examineLogsPath = getLogFilePath(EXAMINE_LOGS);
+        if (Files.exists(examineLogsPath)) {
+            try (BufferedReader reader = Files.newBufferedReader(examineLogsPath);
+                 JsonReader jsonReader = new JsonReader(reader)) {
+                final Type type = new TypeToken<ExamineLogs>() {
+                }.getType();
+                examineLogs = gson.fromJson(jsonReader, type);
+            } catch (IOException | JsonSyntaxException e) {
+                log.error("Unable to read item logs at: " + examineLogsPath, e);
+            }
+        }
+        migrateExamineLogs();
+    }
+
+    public void migrateExamineLogs() {
+        if (this.playerFolder == null) {
+            return;
+        }
+        log.debug("Migrating logs for profile: {}", this.playerFolder.getName());
+        File backup = new File(this.playerFolder, "backup");
+        backup.mkdir();
+
+        final Path itemLogsPath = getLogFilePath("item-logs");
         if (Files.exists(itemLogsPath)) {
             try (BufferedReader reader = Files.newBufferedReader(itemLogsPath);
                  JsonReader jsonReader = new JsonReader(reader)) {
-                itemExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, BaseExamineLog>>() {
-                }.getType());
+                Map<String, BaseExamineLog> itemExamineLogs = gson.fromJson(jsonReader,
+                                                                            new TypeToken<Map<String, BaseExamineLog>>() {
+                                                                            }.getType()
+                );
+                Files.move(itemLogsPath, new File(backup, "item-logs.json").toPath());
+                itemExamineLogs.forEach((name, log) -> {
+                    ExamineLogEntry entry = new ExamineLogEntry(
+                            log.getId(),
+                            ChatMessageType.ITEM_EXAMINE,
+                            name,
+                            log.getExamineText(),
+                            log.getTimestamp(),
+                            log.getWorldPoint()
+                    );
+                    examineLogs.add(entry);
+                });
             } catch (IOException | JsonSyntaxException e) {
                 log.error("Unable to read item logs at: " + itemLogsPath, e);
             }
         }
 
-        final Path npcExamineLogsPath = getLogFilePath(NPC_LOGS);
+        final Path npcExamineLogsPath = getLogFilePath("npc-logs");
         if (Files.exists(npcExamineLogsPath)) {
             try (BufferedReader reader = Files.newBufferedReader(npcExamineLogsPath);
                  JsonReader jsonReader = new JsonReader(reader)) {
-                npcExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, NPCExamineLog>>() {
-                }.getType());
+                Map<String, NPCExamineLog> npcExamineLogs = gson.fromJson(jsonReader,
+                                                                          new TypeToken<Map<String, NPCExamineLog>>() {
+                                                                          }.getType()
+                );
+                Files.move(npcExamineLogsPath, new File(backup, "npc-logs.json").toPath());
+                npcExamineLogs.forEach((name, logs) -> {
+                    logs.getExamineLogs().values().forEach(log -> {
+                        ExamineLogEntry entry = new ExamineLogEntry(
+                                log.getId(),
+                                ChatMessageType.NPC_EXAMINE,
+                                name,
+                                log.getExamineText(),
+                                log.getTimestamp(),
+                                log.getWorldPoint()
+                        );
+                        examineLogs.add(entry);
+                    });
+                });
             } catch (IOException | JsonSyntaxException e) {
                 log.error("Unable to read npc logs at: " + itemLogsPath, e);
             }
         }
 
-        final Path objectExamineLogsPath = getLogFilePath(OBJECT_LOGS);
+        final Path objectExamineLogsPath = getLogFilePath("object-logs");
         if (Files.exists(objectExamineLogsPath)) {
             try (BufferedReader reader = Files.newBufferedReader(objectExamineLogsPath);
                  JsonReader jsonReader = new JsonReader(reader)) {
-                objectExamineLogs = gson.fromJson(jsonReader, new TypeToken<Map<String, ObjectExamineLog>>() {
-                }.getType());
+                Map<String, ObjectExamineLog> objectExamineLogs = gson.fromJson(jsonReader,
+                                                                                new TypeToken<Map<String,
+                                                                                        ObjectExamineLog>>() {
+                                                                                }.getType()
+                );
+                Files.move(objectExamineLogsPath, new File(backup, "object-logs.json").toPath());
+                objectExamineLogs.forEach((name, logs) -> {
+                    logs.getExamineLogs().values().forEach(log -> {
+                        ExamineLogEntry entry = new ExamineLogEntry(
+                                log.getId(),
+                                ChatMessageType.OBJECT_EXAMINE,
+                                name,
+                                log.getExamineText(),
+                                log.getTimestamp(),
+                                log.getWorldPoint()
+                        );
+                        examineLogs.add(entry);
+                    });
+                });
             } catch (IOException | JsonSyntaxException e) {
                 log.error("Unable to read object logs at: " + itemLogsPath, e);
             }
         }
+        saveLogs();
     }
 
     private void loadFullExamineList() throws IOException {
@@ -210,14 +274,8 @@ public class DexaminePlugin extends Plugin {
     }
 
     void saveLogs() {
-        if (!itemExamineLogs.isEmpty()) {
-            writeLogsToDisk(ITEM_LOGS, gson.toJson(itemExamineLogs));
-        }
-        if (!npcExamineLogs.isEmpty()) {
-            writeLogsToDisk(NPC_LOGS, gson.toJson(npcExamineLogs));
-        }
-        if (!objectExamineLogs.isEmpty()) {
-            writeLogsToDisk(OBJECT_LOGS, gson.toJson(objectExamineLogs));
+        if (!examineLogs.isEmpty()) {
+            writeLogsToDisk(EXAMINE_LOGS, gson.toJson(examineLogs));
         }
     }
 
@@ -279,7 +337,7 @@ public class DexaminePlugin extends Plugin {
             case EXAMINE_OBJECT: {
                 type = ChatMessageType.OBJECT_EXAMINE;
                 TileObject object = findTileObject(
-                    client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier()
+                        client.getPlane(), entry.getParam0(), entry.getParam1(), entry.getIdentifier()
                 );
                 if (object == null) {
                     return;
@@ -338,51 +396,19 @@ public class DexaminePlugin extends Plugin {
 
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
         WorldPoint playerPos = client.getLocalPlayer().getWorldLocation();
-        BaseExamineLog examineLog = new BaseExamineLog(
-            pendingExamine.getId(),
-            pendingExamine.getExamineText(),
-            timestamp,
-            playerPos
+        ExamineLogEntry examineLogEntry = new ExamineLogEntry(
+                pendingExamine.getId(),
+                event.getType(),
+                pendingExamine.getName(),
+                pendingExamine.getExamineText(),
+                timestamp,
+                playerPos
         );
 
-        if (event.getType() == ChatMessageType.ITEM_EXAMINE) {
-            if (itemExamineLogs.containsKey(pendingExamine.getName())) {
-                return;
-            }
-            itemExamineLogs.put(pendingExamine.getName(), examineLog);
-        } else if (event.getType() == ChatMessageType.NPC_EXAMINE) {
-            NPCExamineLog npcLog = npcExamineLogs.get(pendingExamine.getName());
-            if (npcLog != null) {
-                npcLog.ids.add(pendingExamine.getId());
-                if (npcLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
-                    return;
-                }
-                npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
-            } else {
-                npcLog = new NPCExamineLog();
-                npcLog.ids.add(pendingExamine.getId());
-                npcLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
-                npcExamineLogs.put(pendingExamine.getName(), npcLog);
-            }
-        } else if (event.getType() == ChatMessageType.OBJECT_EXAMINE) {
-            ObjectExamineLog objectLog = objectExamineLogs.get(pendingExamine.getName());
-            if (objectLog != null) {
-                objectLog.ids.add(pendingExamine.getId());
-                if (objectLog.examineLogs.containsKey(pendingExamine.getExamineText())) {
-                    return;
-                }
-                objectLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
-            } else {
-                objectLog = new ObjectExamineLog();
-                objectLog.ids.add(pendingExamine.getId());
-                objectLog.examineLogs.put(pendingExamine.getExamineText(), examineLog);
-                objectExamineLogs.put(pendingExamine.getName(), objectLog);
-            }
-        } else {
-            return;
+        if (examineLogs.isNew(examineLogEntry)) {
+            openPopUp(pendingExamine);
         }
-
-        openPopUp(pendingExamine);
+        examineLogs.add(examineLogEntry);
         saveLogs();
     }
 
@@ -414,6 +440,7 @@ public class DexaminePlugin extends Plugin {
                     .onClick(this::openExamineLog);
         }
     }
+
     @Subscribe
     public void onMenuOpened(MenuOpened event) {
         Menu menu = client.getMenu();
@@ -422,35 +449,42 @@ public class DexaminePlugin extends Plugin {
                 switch (entry.getType()) {
                     case EXAMINE_ITEM_GROUND: {
                         final ItemComposition itemComposition = itemManager.getItemComposition(entry.getIdentifier());
-                        if (itemComposition.getNote() != -1 ? itemExamineLogs.get("Bank note") != null : itemExamineLogs.get(itemComposition.getName()) != null) {
+                        if (itemComposition.getNote() != -1 ? !examineLogs.isNew(ChatMessageType.ITEM_EXAMINE,
+                                                                                 "Bank note"
+                        ) : !examineLogs.isNew(ChatMessageType.ITEM_EXAMINE, itemComposition.getName())) {
                             if (config.enableExamineHidden()) {
                                 menu.removeMenuEntry(entry);
                             }
-                            return;
+                            continue;
                         }
                         break;
                     }
                     case CC_OP_LOW_PRIORITY: {
                         Widget widget = entry.getWidget();
                         if (widget == null || widget.getParent().getId() != ComponentID.INVENTORY_CONTAINER) {
-                            return;
+                            continue;
                         }
                         final ItemComposition itemComposition = itemManager.getItemComposition(entry.getItemId());
-                        if (itemComposition.getNote() != -1 ? itemExamineLogs.get("Bank note") != null : itemExamineLogs.get(itemComposition.getName()) != null) {
+                        if (itemComposition.getNote() != -1 ? !examineLogs.isNew(ChatMessageType.ITEM_EXAMINE,
+                                                                                 "Bank note"
+                        ) : !examineLogs.isNew(
+                                ChatMessageType.ITEM_EXAMINE,
+                                itemComposition.getName()
+                        )) {
                             if (config.enableExamineHidden()) {
                                 menu.removeMenuEntry(entry);
                             }
-                            return;
+                            continue;
                         }
                         break;
                     }
                     case EXAMINE_NPC: {
                         NPC npc = entry.getNpc();
-                        if (npc == null || npcExamineLogs.get(npc.getName()) != null) {
+                        if (npc == null || !examineLogs.isNew(ChatMessageType.NPC_EXAMINE, npc.getName())) {
                             if (config.enableExamineHidden()) {
                                 menu.removeMenuEntry(entry);
                             }
-                            return;
+                            continue;
                         }
                         break;
                     }
@@ -462,14 +496,16 @@ public class DexaminePlugin extends Plugin {
                                 entry.getIdentifier()
                         );
                         if (object == null) {
-                            return;
+                            continue;
                         }
                         ObjectComposition objectDefinition = getObjectComposition(object.getId());
-                        if (objectDefinition == null || objectExamineLogs.get(objectDefinition.getName()) != null) {
+                        if (objectDefinition == null || !examineLogs.isNew(ChatMessageType.OBJECT_EXAMINE,
+                                                                           objectDefinition.getName()
+                        )) {
                             if (config.enableExamineHidden()) {
                                 menu.removeMenuEntry(entry);
                             }
-                            return;
+                            continue;
                         }
                         break;
                     }
@@ -487,8 +523,8 @@ public class DexaminePlugin extends Plugin {
             // Handles both resizable and fixed modes
             int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 18 : 42);
             this.examineLogWidgetNode = client.openInterface(
-                componentId, SKILL_GUIDE_WIDGET,
-                WidgetModalMode.MODAL_NOCLICKTHROUGH
+                    componentId, SKILL_GUIDE_WIDGET,
+                    WidgetModalMode.MODAL_NOCLICKTHROUGH
             );
             this.openSkillGuideInterfaceSource = "characterSummary";
             this.selectedTab = "items";
@@ -504,15 +540,15 @@ public class DexaminePlugin extends Plugin {
             // Handles both resizable and fixed modes
             int componentId = (client.getTopLevelInterfaceId() << 16) | (client.isResized() ? 13 : 43);
             WidgetNode widgetNode = client.openInterface(
-                componentId,
-                COLLECTION_LOG_POPUP_WIDGET,
-                WidgetModalMode.MODAL_CLICKTHROUGH
+                    componentId,
+                    COLLECTION_LOG_POPUP_WIDGET,
+                    WidgetModalMode.MODAL_CLICKTHROUGH
             );
-            String title = "Examine Log";
+            String title = ColorUtil.wrapWithColorTag("Examine Log", ColorUtil.fromHex("aaff00"));
             String description = String.format(
-                "New %s examine:<br><br><col=ffffff>%s</col>",
-                chatTypeToType(pendingExamine.getType()),
-                pendingExamine.getExamineText()
+                    "<col=aaff00>New %s examine:</col><br><br><col=ffffff>%s</col>",
+                    chatTypeToType(pendingExamine.getType()),
+                    pendingExamine.getExamineText()
             );
             client.runScript(3343, title, description, -1);
 
@@ -617,8 +653,8 @@ public class DexaminePlugin extends Plugin {
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
         if (config.enableCustomCollectionLog()
-            && (event.getScriptId() == 1903 || event.getScriptId() == 1906)
-            && this.examineLogWidgetNode != null
+                && (event.getScriptId() == 1903 || event.getScriptId() == 1906)
+                && this.examineLogWidgetNode != null
         ) {
             // render UI
             /*
@@ -629,7 +665,7 @@ public class DexaminePlugin extends Plugin {
                 return;
             }
             Widget[] skillGuideUIParts = skillGuideUIContainer.getDynamicChildren();
-            int logCount = itemExamineLogs.size() + npcExamineLogs.size() + objectExamineLogs.size();
+            int logCount = examineLogs.count();
             int maxLogCount = fullItemExamineLogs.size() + fullNpcExamineLogs.size() + fullObjectExamineLogs.size();
             skillGuideUIParts[1].setText("Examine Log - " + logCount + "/" + maxLogCount);
 
@@ -689,17 +725,17 @@ public class DexaminePlugin extends Plugin {
              * Scroll Bar
              */
             Widget entriesScrollBar = client.getWidget(SKILL_GUIDE_WIDGET, 10);
-            if (entriesScrollBar != null) {
+            if (entriesScrollBar != null && y > 0) {
                 rowEntriesContainer.setScrollHeight(y);
                 int scrollHeight = (rowEntriesContainer.getScrollY() * y) / rowEntriesContainer.getScrollHeight();
                 rowEntriesContainer.revalidateScroll();
                 clientThread.invokeLater(() ->
-                     client.runScript(
-                         ScriptID.UPDATE_SCROLLBAR,
-                         entriesScrollBar.getId(),
-                         rowEntriesContainer.getId(),
-                         scrollHeight
-                    )
+                                                 client.runScript(
+                                                         ScriptID.UPDATE_SCROLLBAR,
+                                                         entriesScrollBar.getId(),
+                                                         rowEntriesContainer.getId(),
+                                                         scrollHeight
+                                                 )
                 );
                 rowEntriesContainer.setScrollY(0);
                 entriesScrollBar.setScrollY(0);
@@ -710,39 +746,50 @@ public class DexaminePlugin extends Plugin {
     private int renderItemExamineLog(Widget rowEntriesContainer) {
         int index = 0;
         int y = 0;
-
-        for (String key : itemExamineLogs.keySet()) {
-            BaseExamineLog itemExamineLog = itemExamineLogs.get(key);
-            String[] unlockedExamineTexts = {itemExamineLog.getExamineText()};
-            String name = itemExamineLog.getId() == BANK_NOTE_ITEM_ID
+        Map<String, List<ExamineLogEntry>> logs = examineLogs.getLogs(ChatMessageType.ITEM_EXAMINE);
+        List<String> entries = new ArrayList<>(logs.keySet());
+        Collections.sort(entries);
+        for (String key : entries) {
+            List<ExamineLogEntry> itemExamineLogs = logs.get(key);
+            Set<String> examinesUnlocked = itemExamineLogs.stream()
+                    .map(ExamineLogEntry::getExamineText)
+                    .collect(Collectors.toSet());
+            String[] unlockedExamineTexts = examinesUnlocked.toArray(String[]::new);
+            if (itemExamineLogs.isEmpty()) {
+                continue;
+            }
+            int itemId = itemExamineLogs.get(0).getId();
+            String name = itemId == BANK_NOTE_ITEM_ID
                     ? "Bank note"
                     : key;
             int rowHeight = renderExamineLogRow(
-                rowEntriesContainer,
-                name,
-                unlockedExamineTexts,
-                new ArrayList<>(),
-                index,
-                y,
-                itemExamineLog.getId()
+                    rowEntriesContainer,
+                    name,
+                    unlockedExamineTexts,
+                    new ArrayList<>(),
+                    index,
+                    y,
+                    itemId
             );
             index++;
             y += rowHeight;
         }
         if (config.showAllHiddenLogs()) {
-            for (String key : fullItemExamineLogs.keySet()) {
+            List<String> lockedEntries = new ArrayList<>(fullItemExamineLogs.keySet());
+            Collections.sort(lockedEntries);
+            for (String key : lockedEntries) {
                 // filter out logs you have first
-                if (itemExamineLogs.get(key) != null) {
+                if (!examineLogs.isNew(ChatMessageType.ITEM_EXAMINE, key)) {
                     continue;
                 }
                 int rowHeight = renderExamineLogRow(
-                    rowEntriesContainer,
-                    key,
-                    new ArrayList<String>().toArray(String[]::new),
-                    Collections.singletonList(fullItemExamineLogs.get(key)),
-                    index,
-                    y,
-                    -1
+                        rowEntriesContainer,
+                        key,
+                        new ArrayList<String>().toArray(String[]::new),
+                        Collections.singletonList(fullItemExamineLogs.get(key)),
+                        index,
+                        y,
+                        -1
                 );
                 index++;
                 y += rowHeight;
@@ -754,43 +801,49 @@ public class DexaminePlugin extends Plugin {
     private int renderNPCExamineLog(Widget rowEntriesContainer) {
         int index = 0;
         int y = 0;
-
-        for (String key : npcExamineLogs.keySet()) {
-            NPCExamineLog npcExamineLog = npcExamineLogs.get(key);
-            Set<String> examinesUnlocked = npcExamineLog.examineLogs.keySet();
-            String[] unlockedExamineTexts = npcExamineLog.examineLogs.keySet().toArray(String[]::new);
+        Map<String, List<ExamineLogEntry>> logs = examineLogs.getLogs(ChatMessageType.NPC_EXAMINE);
+        List<String> entries = new ArrayList<>(logs.keySet());
+        Collections.sort(entries);
+        for (String key : entries) {
+            List<ExamineLogEntry> npcExamineLogs = logs.get(key);
+            Set<String> examinesUnlocked = npcExamineLogs.stream()
+                    .map(ExamineLogEntry::getExamineText)
+                    .collect(Collectors.toSet());
+            String[] unlockedExamineTexts = examinesUnlocked.toArray(String[]::new);
             List<String> fullLockedExamineTexts = fullNpcExamineLogs.get(key) != null
-                ? fullNpcExamineLogs.get(key)
+                    ? fullNpcExamineLogs.get(key)
                     .stream()
                     .filter((examine) -> !examinesUnlocked.contains(examine))
                     .collect(Collectors.toList())
-                : new ArrayList<>();
+                    : new ArrayList<>();
             int rowHeight = renderExamineLogRow(
-                rowEntriesContainer,
-                key,
-                unlockedExamineTexts,
-                fullLockedExamineTexts,
-                index,
-                y,
-                -1
+                    rowEntriesContainer,
+                    key,
+                    unlockedExamineTexts,
+                    fullLockedExamineTexts,
+                    index,
+                    y,
+                    -1
             );
             index++;
             y += rowHeight;
         }
         if (config.showAllHiddenLogs()) {
-            for (String key : fullNpcExamineLogs.keySet()) {
+            List<String> lockedEntries = new ArrayList<>(fullNpcExamineLogs.keySet());
+            Collections.sort(lockedEntries);
+            for (String key : lockedEntries) {
                 // filter out logs you have first
-                if (npcExamineLogs.get(key) != null) {
+                if (!examineLogs.isNew(ChatMessageType.NPC_EXAMINE, key)) {
                     continue;
                 }
                 int rowHeight = renderExamineLogRow(
-                    rowEntriesContainer,
-                    key,
-                    new ArrayList<String>().toArray(String[]::new),
-                    new ArrayList<>(fullNpcExamineLogs.get(key)),
-                    index,
-                    y,
-                    -1
+                        rowEntriesContainer,
+                        key,
+                        new ArrayList<String>().toArray(String[]::new),
+                        new ArrayList<>(fullNpcExamineLogs.get(key)),
+                        index,
+                        y,
+                        -1
                 );
                 index++;
                 y += rowHeight;
@@ -802,43 +855,49 @@ public class DexaminePlugin extends Plugin {
     private int renderObjectExamineLog(Widget rowEntriesContainer) {
         int index = 0;
         int y = 0;
-
-        for (String key : objectExamineLogs.keySet()) {
-            ObjectExamineLog objectExamineLog = objectExamineLogs.get(key);
-            Set<String> examinesUnlocked = objectExamineLog.examineLogs.keySet();
-            String[] unlockedExamineTexts = objectExamineLog.examineLogs.keySet().toArray(String[]::new);
+        Map<String, List<ExamineLogEntry>> logs = examineLogs.getLogs(ChatMessageType.OBJECT_EXAMINE);
+        List<String> entries = new ArrayList<>(logs.keySet());
+        Collections.sort(entries);
+        for (String key : entries) {
+            List<ExamineLogEntry> objectExamineLogs = logs.get(key);
+            Set<String> examinesUnlocked = objectExamineLogs.stream()
+                    .map(ExamineLogEntry::getExamineText)
+                    .collect(Collectors.toSet());
+            String[] unlockedExamineTexts = examinesUnlocked.toArray(String[]::new);
             List<String> fullLockedExamineTexts = fullObjectExamineLogs.get(key) != null
-                ? fullObjectExamineLogs.get(key)
+                    ? fullObjectExamineLogs.get(key)
                     .stream()
                     .filter((examine) -> !examinesUnlocked.contains(examine))
                     .collect(Collectors.toList())
-                : new ArrayList<>();
+                    : new ArrayList<>();
             int rowHeight = renderExamineLogRow(
-                rowEntriesContainer,
-                key,
-                unlockedExamineTexts,
-                fullLockedExamineTexts,
-                index,
-                y,
-                -1
+                    rowEntriesContainer,
+                    key,
+                    unlockedExamineTexts,
+                    fullLockedExamineTexts,
+                    index,
+                    y,
+                    -1
             );
             index++;
             y += rowHeight;
         }
         if (config.showAllHiddenLogs()) {
-            for (String key : fullObjectExamineLogs.keySet()) {
+            List<String> lockedEntries = new ArrayList<>(fullObjectExamineLogs.keySet());
+            Collections.sort(lockedEntries);
+            for (String key : lockedEntries) {
                 // filter out logs you have first
-                if (objectExamineLogs.get(key) != null) {
+                if (!examineLogs.isNew(ChatMessageType.OBJECT_EXAMINE, key)) {
                     continue;
                 }
                 int rowHeight = renderExamineLogRow(
-                    rowEntriesContainer,
-                    key,
-                    new ArrayList<String>().toArray(String[]::new),
-                    new ArrayList<>(fullObjectExamineLogs.get(key)),
-                    index,
-                    y,
-                    -1
+                        rowEntriesContainer,
+                        key,
+                        new ArrayList<String>().toArray(String[]::new),
+                        new ArrayList<>(fullObjectExamineLogs.get(key)),
+                        index,
+                        y,
+                        -1
                 );
                 index++;
                 y += rowHeight;
@@ -848,8 +907,8 @@ public class DexaminePlugin extends Plugin {
     }
 
     private int renderExamineLogRow(
-        Widget rowEntriesContainer, String key, String[] unlockedExamineTexts,
-        List<String> fullLockedExamineTexts, int index, int y, int itemId
+            Widget rowEntriesContainer, String key, String[] unlockedExamineTexts,
+            List<String> fullLockedExamineTexts, int index, int y, int itemId
     ) {
         final int ODD_OPACITY = 200;
         final int EVEN_OPACITY = 220;
@@ -901,10 +960,10 @@ public class DexaminePlugin extends Plugin {
 
         // Word wrapping without being able to get the text box height this is works well
         List<String> examineLogText = buildExamineLogTextLines(
-            examineLogRowText,
-            unlockedExamineTexts,
-            lockedExamineTexts,
-            fullLockedExamineTexts.size()
+                examineLogRowText,
+                unlockedExamineTexts,
+                lockedExamineTexts,
+                fullLockedExamineTexts.size()
         );
         List<String> nameLines = buildExamineLogName(examineLogRowName, key);
 
@@ -979,8 +1038,8 @@ public class DexaminePlugin extends Plugin {
     }
 
     List<String> buildExamineLogTextLines(
-        Widget examineLogTextBox, String[] unlockedExamineTexts,
-        String[] lockedHintExamineTexts, int lockedCount
+            Widget examineLogTextBox, String[] unlockedExamineTexts,
+            String[] lockedHintExamineTexts, int lockedCount
     ) {
         FontTypeFace font = examineLogTextBox.getFont();
         int width = examineLogTextBox.getWidth();
