@@ -10,7 +10,7 @@ The **Examine Log Plugin** enhances the Old School RuneScape (OSRS) experience b
 - **Popup Hints:** Get hints in the examine menu (e.g., items, NPCs, or objects will display an asterisk `(*)` if their examine is not logged). You can also view full hint text to aid in locating missing examines.
 - **Hint System:** Provides subtle or detailed hints about missing examines, shown directly in the new log interface.
 - **Examine Log Window:** Opens from the character summary window, displaying all logged examines with easy navigation through items, NPCs, and objects.
-- **Progress Bar:** See how close you are to completing your entire collection of examines, encouraging the completionist in every player.
+- **Progress Tracking:** See how close you are to completing your entire collection of examines, encouraging the completionist in every player.
 - **Resizable & Fixed Mode:** Works seamlessly in both resizable and fixed modes, adapting based on the player’s UI preferences.
 
 ## Configuration:
@@ -18,6 +18,7 @@ The **Examine Log Plugin** enhances the Old School RuneScape (OSRS) experience b
 - **Custom Examine Log Interface:** Allows you to toggle the custom examine log interface. Turn this off if you don’t want to view the examine logs within the plugin.
 - **Examine Log Hint Count:** Controls how many examine texts are displayed after the found ones, before the "... and still more to find" placeholder.
 - **Examine Menu Option Hints:** Adds an asterisk `(*)` to the examine menu option when an item, NPC, or object has not yet been examined.
+- **Examine Menu Option Hidden:** Hides examine menu option when an item, NPC, or object has been examined.
 - **Hide Examine Log Text:** Replaces the examine text with `.` for a minimalistic display.
 - **Show Full List of Examine Logs:** Toggles displaying every examine log in the game, even if it hasn't been found yet. *Note: Enabling this option may cause lag when opening the log initially.*
 
@@ -32,6 +33,9 @@ The **Examine Log Plugin** enhances the Old School RuneScape (OSRS) experience b
 1. **Examine Items, NPCs, and Objects:** Use the ‘examine’ option on any item, NPC, or object in the game. The plugin will automatically log these examines.
 2. **Open Examine Log:** Right-click the character summary to open the new Examine Log interface and track your progress.
 3. **Check Hints:** Use the hint system to help guide your search for missing examines. Look for the asterisk `(*)` in the examine menu or use detailed hints provided in the log interface.
+
+## Notes:
+ - **WARNING:** There is no guarantee that logs won't be lost due to unforeseen changes in any API's, as the data is tracked locally there is no cloud backup or persistence across devices. I may need to change data structures and will try my best at migrating everything behind the seen. If you encounter any issues please log them in Github.
 
 ## Credits:
 - **Data Source:** Uses the Minimal OSRS Item Database for examine data.
