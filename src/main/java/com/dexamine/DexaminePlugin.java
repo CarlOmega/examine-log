@@ -562,7 +562,8 @@ public class DexaminePlugin extends Plugin {
             );
             this.openSkillGuideInterfaceSource = "characterSummary";
             this.selectedTab = "items";
-            client.runScript(1902, 1, 0);
+            // Open first tab to force the guide data scroll bar to load in
+            client.runScript(1902, 1, 1);
         });
     }
 
@@ -686,6 +687,14 @@ public class DexaminePlugin extends Plugin {
 
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
+        // On open change to first tab instantly this allows 806.22 to load in its children (scroll bar)
+        if (config.enableCustomCollectionLog()
+                && (event.getScriptId() == 1902)
+                && this.examineLogWidgetNode != null) {
+            clientThread.invokeLater(() -> {
+                client.runScript(1906, 0);
+            });
+        }
         if (config.enableCustomCollectionLog()
                 && (event.getScriptId() == 1903 || event.getScriptId() == 1906)
                 && this.examineLogWidgetNode != null
@@ -702,6 +711,8 @@ public class DexaminePlugin extends Plugin {
             int logCount = examineLogs.count();
             int maxLogCount = fullItemExamineLogs.size() + fullNpcExamineLogs.size() + fullObjectExamineLogs.size();
             skillGuideUIParts[1].setText("Examine Log - " + logCount + "/" + maxLogCount);
+            // Remove Attack Icon
+            skillGuideUIContainer.setChildren(Arrays.copyOfRange(skillGuideUIParts, 0, 11));
 
             /*
              * TABS
@@ -738,7 +749,17 @@ public class DexaminePlugin extends Plugin {
             /*
              * Entries
              */
-            Widget rowEntriesContainer = client.getWidget(SKILL_GUIDE_WIDGET, 8);
+            Widget overviewContainer = client.getWidget(SKILL_GUIDE_WIDGET, 8);
+            Widget guideDataContainer = client.getWidget(SKILL_GUIDE_WIDGET, 19);
+            // Hide the new Overview UI
+            if (overviewContainer != null) {
+                overviewContainer.setHidden(true);
+            }
+            // Show the guide data content (used to render entries)
+            if (guideDataContainer != null) {
+                guideDataContainer.setHidden(false);
+            }
+            Widget rowEntriesContainer = client.getWidget(SKILL_GUIDE_WIDGET, 21);
             if (rowEntriesContainer == null) {
                 return;
             }
@@ -761,18 +782,18 @@ public class DexaminePlugin extends Plugin {
             /*
              * Scroll Bar
              */
-            Widget entriesScrollBar = client.getWidget(SKILL_GUIDE_WIDGET, 10);
+            Widget entriesScrollBar = client.getWidget(SKILL_GUIDE_WIDGET, 22);
             if (entriesScrollBar != null && y > 0) {
                 rowEntriesContainer.setScrollHeight(y);
                 int scrollHeight = (rowEntriesContainer.getScrollY() * y) / rowEntriesContainer.getScrollHeight();
                 rowEntriesContainer.revalidateScroll();
                 clientThread.invokeLater(() ->
-                                                 client.runScript(
-                                                         ScriptID.UPDATE_SCROLLBAR,
-                                                         entriesScrollBar.getId(),
-                                                         rowEntriesContainer.getId(),
-                                                         scrollHeight
-                                                 )
+                        client.runScript(
+                                ScriptID.UPDATE_SCROLLBAR,
+                                entriesScrollBar.getId(),
+                                rowEntriesContainer.getId(),
+                                scrollHeight
+                        )
                 );
                 rowEntriesContainer.setScrollY(0);
                 entriesScrollBar.setScrollY(0);
