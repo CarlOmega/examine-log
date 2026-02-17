@@ -473,7 +473,9 @@ public class DexaminePlugin extends Plugin {
         }
     }
 
-    @Subscribe
+    @Subscribe(
+            priority = -1
+    )
     public void onMenuOpened(MenuOpened event) {
         Menu menu = client.getMenu();
         for (MenuEntry entry : menu.getMenuEntries()) {
